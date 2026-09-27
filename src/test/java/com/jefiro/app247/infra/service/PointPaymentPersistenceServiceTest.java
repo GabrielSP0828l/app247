@@ -11,9 +11,13 @@ import com.jefiro.app247.infra.exception.ApiBusinessException;
 import com.jefiro.app247.infra.repository.OrderRepository;
 import com.jefiro.app247.infra.repository.PagamentoRepository;
 import com.jefiro.app247.infra.repository.TerminalRepository;
+import com.jefiro.app247.infra.repository.CustomerCouponRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -38,6 +42,10 @@ class PointPaymentPersistenceServiceTest {
     @Mock MercadoPagoOperationalConfigurationService configurationService;
     @Mock EmpresaService empresaService;
     @Mock TerminalRepository terminalRepository;
+    @Mock CustomerCouponRepository couponRepository;
+    @Mock OrderPriceFinalizationService priceFinalizationService;
+    @Mock TerminalRequestAuthorizationService terminalAuthorization;
+    @Mock ApplicationEventPublisher eventPublisher;
 
     PointPaymentPersistenceService service;
     Order order;
@@ -50,6 +58,10 @@ class PointPaymentPersistenceServiceTest {
         ReflectionTestUtils.setField(service, "configurationService", configurationService);
         ReflectionTestUtils.setField(service, "empresaService", empresaService);
         ReflectionTestUtils.setField(service, "terminalRepository", terminalRepository);
+        ReflectionTestUtils.setField(service, "couponRepository", couponRepository);
+        ReflectionTestUtils.setField(service, "priceFinalizationService", priceFinalizationService);
+        ReflectionTestUtils.setField(service, "terminalAuthorization", terminalAuthorization);
+        ReflectionTestUtils.setField(service, "eventPublisher", eventPublisher);
         carrinho = new Carrinho();
         carrinho.setIdCarrinho("cart-a");
         Terminal terminal = new Terminal();
@@ -235,5 +247,52 @@ class PointPaymentPersistenceServiceTest {
 
         assertThat(pagamento.getUpdatedAt()).isAfter(Instant.EPOCH);
         verify(pagamentoRepository).saveAndFlush(pagamento);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PagamentoStatus.class, names = {"FAILED", "CANCELED", "EXPIRED"})
+    void retryFinanceiroCriaNovaTentativaAposEstadoTerminal(PagamentoStatus terminalStatus) {
+        PaymentAttempt anterior = new PaymentAttempt(order);
+        anterior.setIdPagamento("payment-1");
+        anterior.setAttemptNumber(1);
+        anterior.setStatus(terminalStatus);
+        order.setPagamento(anterior);
+        when(carrinhoService.getByIdForUpdate("cart-a")).thenReturn(carrinho);
+        when(orderService.criarCobranca(carrinho)).thenReturn(order);
+        when(pagamentoRepository.save(any(PaymentAttempt.class))).thenAnswer(call -> {
+            PaymentAttempt attempt = call.getArgument(0);
+            attempt.setIdPagamento("payment-2");
+            return attempt;
+        });
+
+        var result = service.prepare("cart-a");
+
+        assertThat(result.shouldSubmit()).isTrue();
+        assertThat(order.getPagamento().getIdPagamento()).isEqualTo("payment-2");
+        assertThat(order.getPagamento().getAttemptNumber()).isEqualTo(2);
+        assertThat(order.getPagamento().getValor()).isEqualByComparingTo("10.00");
+        verify(priceFinalizationService).prepareFinancialRetry(eq(order), isNull(), any());
+        verify(eventPublisher).publishEvent(any(
+                com.jefiro.app247.infra.event.OrderPaymentRetryEvent.class));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PagamentoStatus.class,
+            names = {"PENDING", "ACTION_REQUIRED", "UNKNOWN", "CANCELLING"})
+    void tentativaNaoTerminalEhReutilizadaSemNovaCobranca(PagamentoStatus activeStatus) {
+        PaymentAttempt active = new PaymentAttempt(order);
+        active.setIdPagamento("payment-1");
+        active.setAttemptNumber(1);
+        active.setStatus(activeStatus);
+        order.setPagamento(active);
+        when(carrinhoService.getByIdForUpdate("cart-a")).thenReturn(carrinho);
+        when(orderService.criarCobranca(carrinho)).thenReturn(order);
+
+        var result = service.prepare("cart-a");
+
+        assertThat(result.shouldSubmit()).isFalse();
+        assertThat(order.getPagamento()).isSameAs(active);
+        verify(priceFinalizationService).validateFrozen(eq(order), any());
+        verify(pagamentoRepository, never()).save(any());
     }
 }

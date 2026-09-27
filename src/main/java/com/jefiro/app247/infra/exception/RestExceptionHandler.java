@@ -13,11 +13,19 @@ import java.util.NoSuchElementException;
 import com.jefiro.app247.domain.model.dto.PriceChangedResponse;
 import com.jefiro.app247.domain.model.dto.PaymentAlreadyActiveResponse;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.LinkedHashMap;
+import com.jefiro.app247.infra.service.OrderPriceFinalizationService;
+import com.jefiro.app247.domain.model.dto.appclient.AppClienteContracts.CouponMinimumError;
 
 @ControllerAdvice
 public class RestExceptionHandler extends ResponseEntityExceptionHandler {
+    @ExceptionHandler(OrderPriceFinalizationService.CouponMinimumException.class)
+    public ResponseEntity<CouponMinimumError> couponMinimum(OrderPriceFinalizationService.CouponMinimumException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new CouponMinimumError(
+                "COUPON_MINIMUM_NOT_REACHED", ex.minimum(), ex.current(), ex.minimum().subtract(ex.current())));
+    }
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException exception,
@@ -30,7 +38,8 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
         RestErrorMessage body = new RestErrorMessage(
                 HttpStatus.BAD_REQUEST,
                 "Verifique os campos informados.",
-                "VALIDATION_ERROR",
+                request.getDescription(false).contains("/auth/register")
+                        ? "INVALID_REGISTRATION_DATA" : "VALIDATION_ERROR",
                 fields
         );
         return ResponseEntity.badRequest().body(body);
@@ -89,7 +98,21 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(DuplicateCpfException.class)
     public ResponseEntity<RestErrorMessage> duplicateCpf(DuplicateCpfException ex) {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(new RestErrorMessage(HttpStatus.CONFLICT, ex.getMessage()));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new RestErrorMessage(
+                HttpStatus.CONFLICT, "Já existe uma conta cadastrada com este CPF.",
+                "CPF_ALREADY_REGISTERED", null));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<RestErrorMessage> dataConflict(DataIntegrityViolationException ex) {
+        String detail = rootMessage(ex).toLowerCase(java.util.Locale.ROOT);
+        if (detail.contains("uk_users_cpf") || detail.contains("users.cpf")) {
+            return conflict("CPF_ALREADY_REGISTERED", "Já existe uma conta cadastrada com este CPF.");
+        }
+        if (detail.contains("uk_users_email") || detail.contains("users.email")) {
+            return conflict("EMAIL_ALREADY_REGISTERED", "Este e-mail já está sendo utilizado.");
+        }
+        return conflict("DATA_CONFLICT", "Os dados informados conflitam com um cadastro existente.");
     }
     @ExceptionHandler(TerminalNotFoundException.class)
     public ResponseEntity<RestErrorMessage> TerminalNotFound(TerminalNotFoundException ex) {
@@ -125,5 +148,16 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<RestErrorMessage> conflict(IllegalStateException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new RestErrorMessage(HttpStatus.CONFLICT, ex.getMessage()));
+    }
+
+    private ResponseEntity<RestErrorMessage> conflict(String code, String message) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new RestErrorMessage(HttpStatus.CONFLICT, message, code, null));
+    }
+
+    private String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) current = current.getCause();
+        return current.getMessage() == null ? "" : current.getMessage();
     }
 }

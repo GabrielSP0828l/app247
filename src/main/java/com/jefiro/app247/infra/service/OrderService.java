@@ -34,11 +34,13 @@ public class OrderService {
     ProdutoService produtoService;
     @Autowired
     ApplicationEventPublisher eventPublisher;
+    @Autowired
+    OrderPriceFinalizationService priceFinalizationService;
 
     @Transactional
     public Order createOrder(String carrinhoId, String id_user) {
 
-        Carrinho carrinho = carrinhoService.getById(carrinhoId);
+        Carrinho carrinho = carrinhoService.getByIdForUpdate(carrinhoId);
 
         if (carrinho.getStatus() != CarrinhoStatus.OPEN) {
             throw new IllegalStateException("Carrinho já finalizado");
@@ -56,6 +58,7 @@ public class OrderService {
         carrinhoService.save(carrinho);
 
         Order order = new Order(carrinho);
+        priceFinalizationService.initializeSnapshot(order, carrinho);
 
         if (id_user != null) {
             User user = userService.getUser(id_user);
@@ -78,6 +81,7 @@ public class OrderService {
         Carrinho carrinho = carrinhoService.getById(carrinhoId);
         carregarProdutosCompletosParaSnapshot(carrinho);
         Order order = new Order(carrinho);
+        priceFinalizationService.initializeSnapshot(order, carrinho);
 
         if (id_user != null) {
             User user = userService.getUser(id_user);
@@ -99,25 +103,8 @@ public class OrderService {
     @Transactional
     public Order criarCobranca(Carrinho carrinho) {
         Optional<Order> orderExistente = repository.findByCarrinhoIdCarrinho(carrinho.getIdCarrinho());
-        Order order;
-        if (orderExistente.isPresent()) {
-            carrinhoService.validarParaPagamento(carrinho);
-            carrinhoService.reprecificarParaCheckout(carrinho);
-            order = orderExistente.get();
-        } else {
-            order = createOrder(carrinho.getIdCarrinho(), null);
-        }
-        if (order.getCarrinho() != null) {
-            order.atualizarTotaisDoCarrinho();
-            repository.save(order);
-        }
-        if (order.getMpOrderId() != null) {
-            return order;
-        }
-        carrinho.setStatus(CarrinhoStatus.PAYMENT_PENDING);
-        carrinhoService.save(carrinho);
-
-        return order;
+        if (orderExistente.isPresent()) return orderExistente.get();
+        return createOrder(carrinho.getIdCarrinho(), null);
     }
 
 

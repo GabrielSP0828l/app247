@@ -57,7 +57,7 @@ class OrderTerminalStatusTest {
         when(repository.findByCarrinhoIdCarrinho("cart-a")).thenReturn(Optional.of(order));
 
         assertThat(service.criarCobranca(carrinho)).isSameAs(order);
-        verify(carrinhoService).validarParaPagamento(carrinho);
+        verifyNoInteractions(carrinhoService);
         verifyNoInteractions(publisher);
     }
 

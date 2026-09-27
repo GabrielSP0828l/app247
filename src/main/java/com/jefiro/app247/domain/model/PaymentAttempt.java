@@ -92,12 +92,20 @@ public class PaymentAttempt {
     private Instant paidAt;
     @Column(name = "finished_at")
     private Instant finishedAt;
+    @Column(name = "cancellation_requested_at")
+    private Instant cancellationRequestedAt;
+    @Column(name = "cancellation_idempotency_key", length = 120)
+    private String cancellationIdempotencyKey;
 
     public PaymentAttempt(Order order) {
         this.order = order;
         empresa = order.getEmpresa();
         valor = order.getTotalCobrado() != null ? order.getTotalCobrado() : order.getTotal();
-        attemptNumber = order.getPaymentAttempts().size() + 1;
+        attemptNumber = order.getPaymentAttempts().stream()
+                .map(PaymentAttempt::getAttemptNumber)
+                .filter(java.util.Objects::nonNull)
+                .max(Integer::compareTo)
+                .orElse(0) + 1;
     }
 
     public PaymentAttempt(Order order, PagamentoTipo tipo, Payment payment) {
@@ -118,7 +126,10 @@ public class PaymentAttempt {
         if (createdAt == null) createdAt = now;
         updatedAt = now;
         if (attemptNumber == null) attemptNumber = 1;
-        if (idempotencyKey == null) idempotencyKey = "attempt-" + UUID.randomUUID();
+        if (idempotencyKey == null) {
+            idempotencyKey = idPagamento != null
+                    ? "attempt-" + idPagamento : "attempt-" + UUID.randomUUID();
+        }
         if (externalReference == null || externalReference.isBlank()) {
             externalReference = generatedExternalReference();
         }

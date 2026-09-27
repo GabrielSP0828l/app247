@@ -4,6 +4,7 @@ import com.jefiro.app247.domain.model.dto.ValidateCodeRequest;
 
 import com.jefiro.app247.domain.model.dto.ValidateEmailRequest;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -13,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 
 @Service
+@ConditionalOnProperty(name = "app247.workers.enabled", havingValue = "true", matchIfMissing = true)
 public class EmailWorker {
     private static final Logger log = LoggerFactory.getLogger(EmailWorker.class);
     private static final int MAX_ATTEMPTS = 3;

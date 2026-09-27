@@ -153,6 +153,20 @@ public class EstoqueService {
     }
 
     @Transactional
+    public void reservarRetry(Order order, int attemptNumber) {
+        if (attemptNumber <= 1) throw new IllegalArgumentException("Retry deve usar tentativa posterior à primeira");
+        for (OrderItem item : order.getItems()) {
+            String chave = chave(order, item, "RESERVA:" + attemptNumber);
+            if (movimentacaoRepository.existsByChaveIdempotencia(chave)) continue;
+            EstoqueCondominio estoque = estoqueRepository.findForUpdate(
+                    order.getCondominio().getIdCondominio(), item.getProduto().getIdProduto())
+                    .orElseThrow(() -> new IllegalStateException("Produto não disponível neste condomínio"));
+            movimentar(estoque, item.getQuantidade().negate(), TipoMovimentacaoEstoque.RESERVA,
+                    order, item, "Nova reserva para tentativa " + attemptNumber, chave);
+        }
+    }
+
+    @Transactional
     public void confirmarVenda(Order order) {
         for (OrderItem item : order.getItems()) {
             String chave = chave(order, item, "VENDA");
@@ -172,9 +186,13 @@ public class EstoqueService {
     @Transactional
     public void liberar(Order order, boolean cancelamento) {
         for (OrderItem item : order.getItems()) {
-            String chaveLiberacao = chave(order, item, "LIBERACAO");
+            int attemptNumber = order.getPagamento() != null && order.getPagamento().getAttemptNumber() != null
+                    ? order.getPagamento().getAttemptNumber() : 1;
+            String reservaPhase = attemptNumber == 1 ? "RESERVA" : "RESERVA:" + attemptNumber;
+            String releasePhase = attemptNumber == 1 ? "LIBERACAO" : "LIBERACAO:" + attemptNumber;
+            String chaveLiberacao = chave(order, item, releasePhase);
             if (movimentacaoRepository.existsByChaveIdempotencia(chaveLiberacao)) continue;
-            boolean reservada = movimentacaoRepository.existsByChaveIdempotencia(chave(order, item, "RESERVA"));
+            boolean reservada = movimentacaoRepository.existsByChaveIdempotencia(chave(order, item, reservaPhase));
             if (!reservada) continue;
             EstoqueCondominio estoque = estoqueRepository.findForUpdate(
                     order.getCarrinho().getTerminal().getCondominio().getIdCondominio(), item.getProduto().getIdProduto())

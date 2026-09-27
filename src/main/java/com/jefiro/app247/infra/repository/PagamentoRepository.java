@@ -75,6 +75,9 @@ public interface PagamentoRepository extends JpaRepository<PaymentAttempt, Strin
 
     Optional<PaymentAttempt> findByTransactionId(String paymentId);
     Optional<PaymentAttempt> findByProviderOrderId(String providerOrderId);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from PaymentAttempt a join fetch a.order o where a.idPagamento=:id")
+    Optional<PaymentAttempt> findByIdForUpdate(@Param("id") String id);
     Optional<PaymentAttempt> findByProviderAndExternalReference(PaymentProvider provider, String externalReference);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from PaymentAttempt a join fetch a.order o where a.provider=:provider and a.externalReference=:externalReference")

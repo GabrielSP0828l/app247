@@ -1,6 +1,7 @@
 package com.jefiro.app247.infra.security;
 
 import com.jefiro.app247.infra.repository.UserRepository;
+import com.jefiro.app247.domain.model.auth.RoleUser;
 import com.jefiro.app247.infra.service.EmpresaContext;
 import com.jefiro.app247.infra.service.TokenService;
 import jakarta.servlet.FilterChain;
@@ -39,7 +40,7 @@ public class SecurityFilter extends OncePerRequestFilter {
 
                 if (identity != null && identidadeConfereComToken(identity, tokenIdentity, request)) {
                     var user = identity.user();
-                    EmpresaContext.set(identity.empresaId());
+                    if (identity.empresaId() != null) EmpresaContext.set(identity.empresaId());
 
                     var authentication =
                             new UsernamePasswordAuthenticationToken(
@@ -66,11 +67,16 @@ public class SecurityFilter extends OncePerRequestFilter {
             request.setAttribute(FAILURE_CODE_ATTRIBUTE, "USER_DISABLED");
             return false;
         }
-        if (identity.empresaId() == null
-                || tokenIdentity.userId() == null
-                || tokenIdentity.empresaId() == null
-                || !tokenIdentity.userId().equals(identity.user().getIdUser())
-                || !tokenIdentity.empresaId().equals(identity.empresaId())) {
+        if (tokenIdentity.userId() == null || !tokenIdentity.userId().equals(identity.user().getIdUser())) {
+            request.setAttribute(FAILURE_CODE_ATTRIBUTE, "COMPANY_NOT_FOUND");
+            return false;
+        }
+        if (identity.empresaId() == null) {
+            boolean globalClient = identity.user().getRole() == RoleUser.USER && tokenIdentity.empresaId() == null;
+            if (!globalClient) request.setAttribute(FAILURE_CODE_ATTRIBUTE, "COMPANY_NOT_FOUND");
+            return globalClient;
+        }
+        if (tokenIdentity.empresaId() == null || !tokenIdentity.empresaId().equals(identity.empresaId())) {
             request.setAttribute(FAILURE_CODE_ATTRIBUTE, "COMPANY_NOT_FOUND");
             return false;
         }

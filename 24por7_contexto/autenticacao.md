@@ -26,7 +26,10 @@ inventa empresa ou usuário.
 
 `User` implementa `UserDetails` e é a identidade única para usuários comuns e gestores. O identificador de login é o CPF (`getUsername`) e a senha persistida é `senha`. Gestores são usuários `ADMIN` ou `GERENTE` associados a uma empresa; não existe uma segunda entidade de autenticação.
 
-O onboarding força o primeiro gestor a `ADMIN`, ignorando qualquer papel recebido no DTO. Embora `POST /auth/register` esteja público na camada HTTP, o caso de uso exige gestor/contexto para derivar a empresa e força o novo cadastro a `USER`; o cliente não pode promover a si mesmo por `roleUser`.
+O onboarding administrativo força o primeiro gestor a `ADMIN`. `POST /auth/register`
+é o cadastro público do App Cliente: não aceita papel nem IDs de tenant, força `USER`
+e cria a conta com Empresa/Condomínio nulos e CPF `UNVERIFIED`. O vínculo posterior
+usa convite administrativo conforme [[app-cliente/account-tenant-link]].
 
 Os papéis declarados são `ADMIN`, `GERENTE`, `PORTARIA`, `MORADOR` e `USER`. As authorities efetivas são:
 
@@ -54,11 +57,25 @@ O segredo JWT não possui mais fallback literal: `JWT` é obrigatório fora do p
 
 O filtro lê `Authorization`, remove literalmente `Bearer ` e valida assinatura/expiração uma única vez. O resultado validado contém `subject`, `userId` e `empresaId`. Os dois claims de identidade são comparados com o estado atual do banco antes de preencher o `SecurityContext` e o `EmpresaContext`; portanto um token antigo deixa de autenticar quando o usuário muda de Empresa ou quando a Empresa é desativada/encerrada.
 
+Uma exceção deliberada permite que uma conta `USER` ainda global autentique com JWT
+sem `empresaId` exclusivamente para concluir o vínculo. Depois que a Empresa é
+persistida, esse token antigo não confere mais com o banco; o consumo retorna um JWT
+novo com o tenant.
+
 `UserRepository.findSecurityIdentityByCpf` usa uma projeção JPQL específica para o caminho crítico. A mesma consulta retorna o `User` usado como principal e apenas `Empresa.id`, `Empresa.ativo` e `Empresa.closed_at`. O filtro não chama getters da associação `User.empresa`, que permanece `LAZY`, e não depende de Open Session in View, `JOIN FETCH`, relacionamento `EAGER` ou transação aberta durante toda a requisição. Isso também evita uma segunda consulta e N+1 no filtro.
 
 Em rota protegida, Empresa desativada/encerrada produz `403` com código `COMPANY_DISABLED`; divergência ou ausência da Empresa informada no JWT produz `COMPANY_NOT_FOUND`. Usuário desativado produz `USER_DISABLED`. Uma rota `permitAll` continua atravessando a cadeia mesmo quando recebe um JWT antigo sem identidade operacional válida. Tokens criptograficamente inválidos continuam seguindo o comportamento anterior de `TokenService.validate`, que lança `RuntimeException`; esta correção não alterou o contrato geral de JWT inválido.
 
 ## Política HTTP atual
+
+As rotas `/app-cliente/**` exigem `ROLE_USER` (papel concedido também a ADMIN e
+GERENTE). Os consumidores de QR `/terminal/customer-link/consume` e
+`/terminal/coupons/apply` não usam o JWT do cliente: exigem `X-Terminal-Token`,
+configurado por `TERMINAL_INTERNAL_TOKEN`, e validam Terminal, Empresa e Condomínio.
+
+`POST /admin/app-cliente/tenant-invitations` fica sob `/admin/**` e exige
+`ADMIN/GERENTE`. `POST /app-cliente/tenant-link` exige `USER`; seu body contém apenas
+o token opaco, nunca IDs de tenant.
 
 `SecurityConfig` desabilita CSRF, define sessão stateless, executa o filtro JWT
 antes de `UsernamePasswordAuthenticationFilter`, restringe `/admin/**` a

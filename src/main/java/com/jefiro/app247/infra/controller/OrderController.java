@@ -4,12 +4,18 @@ import com.jefiro.app247.domain.model.dto.OrderDetailResponse;
 import com.jefiro.app247.domain.model.dto.PaymentStatusResponse;
 import com.jefiro.app247.infra.service.OrderService;
 import com.jefiro.app247.infra.service.PaymentReconciliationService;
+import com.jefiro.app247.infra.service.TerminalRequestAuthorizationService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 
@@ -21,6 +27,8 @@ public class OrderController {
     OrderService service;
     @Autowired
     PaymentReconciliationService reconciliationService;
+    @Autowired
+    TerminalRequestAuthorizationService terminalAuthorization;
 
     @GetMapping("/finalizar")
     public ResponseEntity<?> order(@RequestParam String carrinho_id) {
@@ -33,10 +41,20 @@ public class OrderController {
     }
 
     @GetMapping("/{orderId}/status")
+    @Operation(summary = "Reconcilia o pagamento da Order para o Terminal autenticado",
+            description = "A resposta inclui attemptStatus; UNKNOWN não autoriza retry financeiro.",
+            security = @SecurityRequirement(name = "terminalToken"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Estado local/remoto, incluindo attemptStatus UNKNOWN"),
+            @ApiResponse(responseCode = "401", description = "Credencial interna inválida"),
+            @ApiResponse(responseCode = "404", description = "Order não pertence ao Terminal")
+    })
     public ResponseEntity<PaymentStatusResponse> getStatus(
             @PathVariable String orderId,
-            @RequestParam String terminalId
+            @RequestParam String terminalId,
+            @RequestHeader(value = "X-Terminal-Token", required = false) String credential
     ) {
+        terminalAuthorization.authorize(credential, terminalId);
         return ResponseEntity.ok(reconciliationService.reconcileForTerminal(orderId, terminalId));
     }
 

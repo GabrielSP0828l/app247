@@ -9,13 +9,18 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.repository.query.Param;
 import org.springframework.security.core.userdetails.UserDetails;
+
+import jakarta.persistence.LockModeType;
 
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, String> {
     Optional<User> findByEmail(String email);
+
+    boolean existsByEmailIgnoreCase(String email);
 
     UserDetails findByCpf(String cpf);
 
@@ -33,6 +38,10 @@ public interface UserRepository extends JpaRepository<User, String> {
     Optional<User> getByCpf(@Param("cpf") String cpf);
 
     boolean existsByCpf(String cpf);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u left join fetch u.empresa left join fetch u.condominio where u.idUser=:userId")
+    Optional<User> findByIdForUpdate(@Param("userId") String userId);
 
   @Query("""
     SELECT new com.jefiro.app247.domain.model.dto.OrderDTO(

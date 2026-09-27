@@ -1,6 +1,7 @@
 package com.jefiro.app247.infra.service;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -13,6 +14,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 
 @Service
+@ConditionalOnProperty(name = "app247.workers.enabled", havingValue = "true", matchIfMissing = true)
 public class PaymentWorker {
     private static final Logger log = LoggerFactory.getLogger(PaymentWorker.class);
     static final String QUEUE = "mp_queue";

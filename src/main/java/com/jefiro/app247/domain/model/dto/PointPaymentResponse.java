@@ -15,13 +15,34 @@ public record PointPaymentResponse(
         OrderStatus mercadoPagoStatus,
         String transactionId,
         String statusDetail,
-        String message
+        String message,
+        String remoteOrderId,
+        boolean cancellationRequested,
+        String attemptStatus
 ) {
+    public PointPaymentResponse(String type, String orderId, String paymentAttemptId,
+                                String terminalId, TerminalPaymentStatus status,
+                                OrderStatus mercadoPagoStatus, String transactionId,
+                                String statusDetail, String message, String remoteOrderId,
+                                boolean cancellationRequested) {
+        this(type, orderId, paymentAttemptId, terminalId, status, mercadoPagoStatus,
+                transactionId, statusDetail, message, remoteOrderId,
+                cancellationRequested, null);
+    }
+
+    public PointPaymentResponse(String type, String orderId, String paymentAttemptId,
+                                String terminalId, TerminalPaymentStatus status,
+                                OrderStatus mercadoPagoStatus, String transactionId,
+                                String statusDetail, String message) {
+        this(type, orderId, paymentAttemptId, terminalId, status, mercadoPagoStatus,
+                transactionId, statusDetail, message, null, false, null);
+    }
+
     public PointPaymentResponse(String type, String orderId, String terminalId,
                                 TerminalPaymentStatus status, OrderStatus mercadoPagoStatus,
                                 String transactionId, String statusDetail, String message) {
         this(type, orderId, null, terminalId, status, mercadoPagoStatus,
-                transactionId, statusDetail, message);
+                transactionId, statusDetail, message, null, false, null);
     }
 
     public static PointPaymentResponse from(Order order) {
@@ -36,7 +57,10 @@ public record PointPaymentResponse(
                 order.getStatus(),
                 pagamento != null ? pagamento.getTransactionId() : null,
                 pagamento != null ? pagamento.getStatusDetail() : null,
-                MercadoPagoStatusMapper.message(terminalStatus)
+                MercadoPagoStatusMapper.message(terminalStatus),
+                pagamento != null ? pagamento.getProviderOrderId() : null,
+                pagamento != null && pagamento.getCancellationRequestedAt() != null,
+                pagamento != null ? pagamento.getStatus().name() : null
         );
     }
 }

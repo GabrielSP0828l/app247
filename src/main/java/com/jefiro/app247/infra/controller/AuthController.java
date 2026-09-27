@@ -1,57 +1,79 @@
 package com.jefiro.app247.infra.controller;
 
-import com.jefiro.app247.domain.model.auth.User;
-import com.jefiro.app247.domain.model.dto.UserRequestDTO;
-import com.jefiro.app247.domain.model.dto.ValidateCodeRequest;
 import com.jefiro.app247.domain.model.dto.ValidateEmailRequest;
 import com.jefiro.app247.domain.model.dto.auth.AuthDTO;
-import com.jefiro.app247.infra.repository.UserRepository;
-import com.jefiro.app247.infra.service.TokenService;
+import com.jefiro.app247.domain.model.dto.auth.ClientRegistrationRequest;
+import com.jefiro.app247.domain.model.dto.auth.ClientRegistrationResponse;
+import com.jefiro.app247.infra.exception.ApiBusinessException;
+import com.jefiro.app247.infra.service.RegistrationRateLimiter;
+import com.jefiro.app247.infra.service.RegistrationService;
 import com.jefiro.app247.infra.service.UserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import lombok.Generated;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.Map;
 
 @RestController
 @RequestMapping("auth")
 public class AuthController {
-    @Autowired
-    UserService service;
+    private final UserService users;
+    private final RegistrationService registrations;
+    private final RegistrationRateLimiter rateLimiter;
+
+    public AuthController(UserService users, RegistrationService registrations,
+                          RegistrationRateLimiter rateLimiter) {
+        this.users = users;
+        this.registrations = registrations;
+        this.rateLimiter = rateLimiter;
+    }
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody @Valid AuthDTO auth) {
-        return ResponseEntity.ok(service.login(auth));
+        return ResponseEntity.ok(users.login(auth));
     }
 
     @PostMapping("/login/admin")
     public ResponseEntity<?> loginAdmin(@RequestBody @Valid AuthDTO auth) {
-        return ResponseEntity.ok(service.loginAdmin(auth));
+        return ResponseEntity.ok(users.loginAdmin(auth));
     }
 
     @PostMapping("/register")
-    public ResponseEntity<?> create(@RequestBody @Valid UserRequestDTO requestDTO) {
-        service.cadastrar(requestDTO);
-
-        return ResponseEntity.ok().build();
+    @Operation(summary = "Cria uma conta do App 24/7 Cliente sem vínculo arbitrário de tenant")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Conta criada; CPF ainda não verificado"),
+            @ApiResponse(responseCode = "400", description = "Dados ou CPF inválidos"),
+            @ApiResponse(responseCode = "409", description = "CPF ou e-mail já cadastrado"),
+            @ApiResponse(responseCode = "429", description = "Limite de tentativas excedido")
+    })
+    public ResponseEntity<ClientRegistrationResponse> create(
+            @RequestBody @Valid ClientRegistrationRequest body, HttpServletRequest request) {
+        if (!rateLimiter.allow(clientIp(request), body.email(), body.cpf())) {
+            throw new ApiBusinessException(HttpStatus.TOO_MANY_REQUESTS, "REGISTRATION_RATE_LIMITED",
+                    "Muitas tentativas de cadastro. Tente novamente mais tarde.");
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(registrations.register(body));
     }
 
     @PostMapping("/send-code")
     public ResponseEntity<?> sendCode(@RequestBody ValidateEmailRequest request) {
-        service.sendCode(request);
+        users.sendCode(request);
         return ResponseEntity.ok().build();
     }
 
     @PostMapping("/validate-code")
     public ResponseEntity<?> validateCode(@RequestBody ValidateEmailRequest request) {
-        service.verificarCode(request);
+        users.verificarCode(request);
         return ResponseEntity.ok().build();
+    }
+
+    private String clientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        return forwarded == null || forwarded.isBlank()
+                ? request.getRemoteAddr()
+                : forwarded.split(",", 2)[0].trim();
     }
 }

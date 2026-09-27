@@ -53,6 +53,9 @@ public class PaymentStateTransitionService {
             throw new IllegalStateException("ATTEMPT_NOT_FOUND: webhook sem tentativa local persistida");
         }
         Order order = pagamento.getOrder();
+        PaymentAttempt currentAttempt = order.getPagamento();
+        boolean current = currentAttempt != null
+                && currentAttempt.getIdPagamento().equals(pagamento.getIdPagamento());
         if (pagamento.getProviderOrderId() == null && data.mercadoPagoOrderId() != null) {
             pagamento.setProviderOrderId(data.mercadoPagoOrderId());
         }
@@ -73,9 +76,21 @@ public class PaymentStateTransitionService {
             return false;
         }
 
+        PagamentoStatus mappedPaymentStatus = MercadoPagoStatusMapper.toPagamentoStatus(remoteStatus);
+        if (!canApplyAttemptStatus(pagamento.getStatus(), mappedPaymentStatus)) {
+            log.warn("Transição de tentativa inválida ignorada: attemptId={}, current={}, received={}",
+                    pagamento.getIdPagamento(), pagamento.getStatus(), mappedPaymentStatus);
+            return false;
+        }
+        boolean appliesToOrder = current || remoteStatus == OrderStatus.PROCESSED
+                || remoteStatus == OrderStatus.REFUNDED;
         OrderStatus localStatus = order.getStatus();
-        boolean stateChanged = localStatus != remoteStatus;
-        if (stateChanged && localStatus != null && !localStatus.canTransitionTo(remoteStatus)) {
+        boolean stateChanged = appliesToOrder && localStatus != remoteStatus;
+        boolean approvalWinsCancellationRace = remoteStatus == OrderStatus.PROCESSED
+                && localStatus != OrderStatus.PROCESSED
+                && localStatus != OrderStatus.REFUNDED;
+        if (stateChanged && localStatus != null && !localStatus.canTransitionTo(remoteStatus)
+                && !approvalWinsCancellationRace) {
             log.warn("Transição Mercado Pago inválida ignorada: orderId={}, current={}, received={}, version={}",
                     order.getIdOrder(), localStatus, remoteStatus, data.version());
             return false;
@@ -83,15 +98,24 @@ public class PaymentStateTransitionService {
         PagamentoStatus pagamentoAnterior = pagamento.getStatus();
         pagamento.setUpdatedAt(Instant.now());
         if (data.paymentId() != null) pagamento.setTransactionId(data.paymentId());
-        pagamento.setStatus(MercadoPagoStatusMapper.toPagamentoStatus(remoteStatus));
+        pagamento.setStatus(mappedPaymentStatus);
+        if (mappedPaymentStatus == PagamentoStatus.PROCESSED
+                || mappedPaymentStatus == PagamentoStatus.FAILED
+                || mappedPaymentStatus == PagamentoStatus.CANCELED
+                || mappedPaymentStatus == PagamentoStatus.EXPIRED
+                || mappedPaymentStatus == PagamentoStatus.REFUNDED) {
+            pagamento.setFinishedAt(Instant.now());
+        }
 
         Object domainEvent = null;
         switch (remoteStatus) {
             case PROCESSED -> {
                 Instant paidAt = pagamento.getPaidAt() != null ? pagamento.getPaidAt() : Instant.now();
                 pagamento.setPaidAt(paidAt);
-                order.setPaidAt(paidAt);
-                if (order.getCarrinho() != null) order.getCarrinho().setStatus(CarrinhoStatus.PAID);
+                if (appliesToOrder) {
+                    order.setPaidAt(paidAt);
+                    if (order.getCarrinho() != null) order.getCarrinho().setStatus(CarrinhoStatus.PAID);
+                }
                 if (data.paymentMethodType() != null || data.paymentMethodId() != null) {
                     PagamentoTipo tipo = MercadoPagoStatusMapper.toPagamentoTipo(data.paymentMethodType());
                     pagamento.setPaymentMethodId(PaymentMethodId.findByValue(data.paymentMethodId()));
@@ -102,15 +126,15 @@ public class PaymentStateTransitionService {
                 if (stateChanged) domainEvent = new OrderPaidEvent(order);
             }
             case CANCELED -> {
-                markCartCanceled(order);
+                if (appliesToOrder) markCartCanceled(order);
                 if (stateChanged) domainEvent = new CompraCanceladaEvent(order);
             }
             case EXPIRED, FAILED -> {
-                markCartCanceled(order);
+                if (appliesToOrder) markCartCanceled(order);
                 if (stateChanged) domainEvent = new OrderNotCompletedEvent(order, false);
             }
             case REFUNDED -> {
-                markCartCanceled(order);
+                if (appliesToOrder) markCartCanceled(order);
                 if (stateChanged) domainEvent = new OrderNotCompletedEvent(order, true);
             }
             case ACTION_REQUIRED, CREATED, AT_TERMINAL, PENDING -> { }
@@ -119,14 +143,16 @@ public class PaymentStateTransitionService {
         // O detalhe da transação é mais específico (ex.: insufficient_amount) que o detalhe da Order.
         pagamento.setStatusDetail(data.paymentStatusDetail() != null
                 ? data.paymentStatusDetail() : data.orderStatusDetail());
-        order.setStatus(remoteStatus);
+        if (appliesToOrder) order.setStatus(remoteStatus);
         if (data.version() != null) pagamento.setProviderEventVersion(data.version());
         pagamento.setProviderEventAt(parseDate(data.eventDate()));
 
         pagamentoRepository.saveAndFlush(pagamento);
         registrarEvento(pagamento, pagamentoAnterior, data, remoteStatus, providerEventId);
-        orderService.save(order);
-        if (order.getCarrinho() != null) carrinhoService.save(order.getCarrinho());
+        if (appliesToOrder) {
+            orderService.save(order);
+            if (order.getCarrinho() != null) carrinhoService.save(order.getCarrinho());
+        }
         if (domainEvent != null) eventPublisher.publishEvent(domainEvent);
         if (stateChanged) {
             eventPublisher.publishEvent(new PaymentEvent(PointPaymentResponse.from(order)));
@@ -134,6 +160,17 @@ public class PaymentStateTransitionService {
                     order.getIdOrder(), pagamento.getIdPagamento(), localStatus, remoteStatus, localStatus, remoteStatus);
         }
         return stateChanged;
+    }
+
+    private boolean canApplyAttemptStatus(PagamentoStatus current, PagamentoStatus next) {
+        if (current == next) return true;
+        if (current == PagamentoStatus.REFUNDED) return false;
+        if (current == PagamentoStatus.PROCESSED) return next == PagamentoStatus.REFUNDED;
+        if (current == PagamentoStatus.FAILED || current == PagamentoStatus.CANCELED
+                || current == PagamentoStatus.EXPIRED) {
+            return next == PagamentoStatus.PROCESSED;
+        }
+        return true;
     }
 
     private void registrarEvento(PaymentAttempt attempt, PagamentoStatus anterior,

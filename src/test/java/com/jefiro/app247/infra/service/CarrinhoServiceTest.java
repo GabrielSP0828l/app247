@@ -27,6 +27,7 @@ class CarrinhoServiceTest {
     @Mock ProdutoService produtoService;
     @Mock TerminalRepository terminalRepository;
     @Mock PricingService pricingService;
+    @Mock CustomerIdentityService customerIdentityService;
     @InjectMocks CarrinhoService service;
 
     @Test
@@ -77,6 +78,25 @@ class CarrinhoServiceTest {
         assertEquals("789123", carrinho.getItems().get(0).getBarcode());
         assertSame(barcode, carrinho.getItems().get(0).getCodigoBarrasReferencia());
         assertEquals("789123", order.getItems().get(0).getCodigoBarras());
+    }
+
+    @Test
+    void cpfDoTerminalCriaSomenteIdentidadeHistoricaDoTenant() {
+        Empresa empresa = Empresa.builder().id("empresa-a").build();
+        Terminal terminal = terminal(empresa);
+        Produto produto = produto("produto-a", empresa, "7.50");
+        CustomerIdentity identity = new CustomerIdentity();
+        when(terminalRepository.findById("terminal-a")).thenReturn(Optional.of(terminal));
+        when(customerIdentityService.resolve(empresa, "529.982.247-25")).thenReturn(identity);
+        when(produtoService.buscarPorIdDoTenant("produto-a", "empresa-a")).thenReturn(produto);
+        when(pricingService.calcular(eq(produto), eq(terminal.getCondominio()), any())).thenReturn(precoNormal(produto));
+        when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Carrinho carrinho = service.save(new CarrinhoRequest("terminal-a",
+                List.of(new ItemRequest("produto-a", 1, null)), "529.982.247-25"));
+
+        assertSame(identity, carrinho.getCustomerIdentity());
+        assertNull(identity.getUser());
     }
 
     @Test

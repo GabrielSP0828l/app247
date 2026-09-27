@@ -2,9 +2,10 @@
 
 Voltar para [[00-index]]. Arquitetura em [[arquitetura-geral]], autenticação em [[autenticacao]] e riscos em [[auditoria-bugs]].
 
-> As novas rotas `/admin/**` exigem JWT `ADMIN` ou `GERENTE`. As demais rotas
-> ainda seguem temporariamente a regra residual `anyRequest().permitAll()` e
-> dependem dos controles de tenant internos quando aplicáveis.
+> As rotas `/admin/**` exigem JWT `ADMIN` ou `GERENTE` e `/app-cliente/**`
+> exige JWT `USER`. Rotas legadas não listadas nos matchers protegidos ainda
+> seguem temporariamente `anyRequest().permitAll()`. As rotas financeiras do
+> Terminal listadas neste documento aplicam autenticação interna no controller/service.
 
 ## Convenções observadas
 
@@ -41,15 +42,53 @@ Esta é a segurança configurada atualmente em `SecurityConfig`. A tabela regist
 | `/condominios/**` | não | sim | `ADMIN` ou `GERENTE` |
 | `/terminais/**` | não | sim | `ADMIN` ou `GERENTE` |
 | `/mercado-pago/**`, `/mp/oauth/**` | não | sim | `ADMIN` ou `GERENTE`; somente callbacks OAuth são públicos e exigem `state` válido |
+| `/admin/app-cliente/**` | não | sim | `ADMIN` ou `GERENTE`; Empresa sempre deriva do JWT |
 | `/produtos/**`, `/estoque/**` | sim | não | nenhum |
 | `/user/recuperar`, `/user/validar`, `/user/redefinir-senha` | sim | não | nenhum |
 | demais `/user/**` | sim pela regra residual | não | nenhum |
-| `/carrinho/**`, `/checkout/**`, `/order/**`, `/pagamento/**` | sim pela regra residual | não | nenhum |
+| `POST /carrinho` e rotas de pagamento/status/cancelamento do Terminal | não | não | `X-Terminal-Token` + identidade do Terminal |
+| demais `/carrinho/**`, `/checkout/**` e rotas legadas de `/order/**` | sim pela regra residual | não | nenhum |
 | `/files/**` | sim pela regra residual | não | nenhum |
 | `/api/testes/mercadopago/**` | sim pela regra residual | não | nenhum |
+| `/app-cliente/**` | não | sim | `USER` (inclui `ADMIN` e `GERENTE`) |
+| `/terminal/customer-link/consume`, `/terminal/coupons/apply` | não | não | segredo interno `X-Terminal-Token` |
 | `/webhook/**`, ativação por serial e Swagger | sim | não | nenhum |
 
-Segurança recomendada, não implementada: restringir operações de usuário ao principal, autenticar carrinho/pedido/pagamento conforme o cliente, proteger upload e testes externos, e autenticar handshakes WebSocket. Veja [[melhorias]].
+Segurança ainda recomendada: restringir operações legadas de usuário ao principal,
+proteger checkout/comprovante/upload/testes externos e autenticar handshakes WebSocket.
+Veja [[backend-pending]].
+
+# App Cliente
+
+Os contratos móveis obrigatórios estão implementados sob `/app-cliente` e não
+aceitam IDs de contexto no request. Incluem bootstrap, catálogo paginado,
+histórico/detalhe/comprovante/suporte de compras, identificação temporária,
+fidelidade, recompensas/resgates, cupons/tokens e preferências. A lista completa,
+regras de ownership, atomicidade e consumidores do Terminal estão em
+[[app-cliente]].
+
+## Gestão do App Cliente
+
+Todas as rotas abaixo exigem JWT `ADMIN` ou `GERENTE`. Nenhuma aceita `empresaId`:
+
+| Método | Rota | Contrato |
+|---|---|---|
+| GET | `/admin/app-cliente/config` | Lê as flags explícitas da Empresa; ausência retorna defaults seguros desativados. |
+| PUT | `/admin/app-cliente/config` | Atualiza catálogo, promoções, fidelidade, QR, preferências e suporte. |
+| GET | `/admin/app-cliente/fidelidade` | Lê estado, modo e taxa da Empresa. |
+| PUT | `/admin/app-cliente/fidelidade` | Valida e grava `NONE`, `POINTS` ou `CASHBACK`. |
+| GET | `/admin/app-cliente/recompensas` | Lista paginada; aceita `page`, `size` e `ativo`. |
+| POST | `/admin/app-cliente/recompensas` | Cria recompensa da Empresa autenticada. |
+| GET | `/admin/app-cliente/recompensas/{id}` | Consulta por ID e Empresa; cross-tenant retorna 404. |
+| PUT | `/admin/app-cliente/recompensas/{id}` | Atualiza campos e validade no tenant. |
+| DELETE | `/admin/app-cliente/recompensas/{id}` | Soft delete (`ativo=false`). |
+
+O request de configuração não contém dados financeiros; o endpoint de fidelidade é a
+fonte de verdade para modo e taxas. Recompensas usam `PERCENTUAL` ou `VALOR_FIXO`,
+`BigDecimal`, mínimo de compra obrigatório e desconto máximo opcional. Erros de
+negócio incluem `INVALID_LOYALTY_MODE`, `INVALID_LOYALTY_CONFIG`, `INVALID_REWARD` e
+`REWARD_NOT_FOUND`. Contratos detalhados: [[app-cliente/app-client-config]],
+[[app-cliente/loyalty-config]] e [[app-cliente/rewards]].
 
 # Autenticação
 
@@ -75,14 +114,30 @@ Segurança recomendada, não implementada: restringir operações de usuário ao
 
 ## POST /auth/register
 
-- Controller/service: `AuthController.create` → `UserService.cadastrar`.
-- Finalidade: cadastrar usuário comum na empresa do gestor.
-- Segurança HTTP: pública temporariamente; a operação depende de `EmpresaContext` e falha sem contexto válido, sem inventar empresa.
-- Body `UserRequestDTO`: nome, sobrenome, email, senha, CPF, telefone, data de nascimento `dd/MM/yyyy`; `roleUser` é aceito no JSON, mas o service força `USER`.
-- Resposta: `200` sem corpo.
-- Erros: `400`, `401`, `403`, `409` para CPF duplicado; constraint de email pode resultar em erro não tratado.
-- Efeitos: senha BCrypt, insert em `users` e `UserCreatedEvent` para e-mail assíncrono.
-- Tenant: empresa vem de `EmpresaContext`; não é aceita no body.
+- Controller/service: `AuthController.create` → `RegistrationService.register`.
+- Finalidade: cadastrar uma conta global `USER`, ainda sem Empresa/Condomínio.
+- Segurança HTTP: pública, com rate limit por IP/e-mail/CPF.
+- Body `ClientRegistrationRequest`: nome/sobrenome, e-mail, senha, CPF, telefone e aceites legais quando configurados; não aceita role nem IDs de tenant.
+- Resposta: `201 ClientRegistrationResponse`, com CPF `UNVERIFIED`.
+- Erros: `400` para dados/CPF inválidos, `409` para CPF/e-mail já existentes e `429` para excesso de tentativas.
+- Efeitos: senha BCrypt, insert em `users` com `cpf_verified_at = NULL` e `UserCreatedEvent`.
+- Tenant: permanece nulo até o consumo de convite autorizado.
+
+## POST /admin/app-cliente/tenant-invitations
+
+- Segurança: JWT `ADMIN` ou `GERENTE`.
+- Body: `cpf`, `condominioId`.
+- Tenant: Empresa sempre deriva do JWT; o Condomínio precisa pertencer a ela e estar ativo.
+- Resposta: `201`, token opaco de uso único, expiração e ID do Condomínio.
+- Persistência: somente hashes do token e CPF são armazenados.
+
+## POST /app-cliente/tenant-link
+
+- Segurança: JWT `USER`, inclusive o JWT global emitido antes do vínculo.
+- Body: somente `token`; não aceita Empresa ou Condomínio.
+- Efeito: valida CPF/tenant, vincula a conta, marca o CPF verificado, executa claim e emite JWT novo com `empresaId`.
+- Resposta: `200`, status, novo access token, tenant resolvido, estado do CPF e resultado do claim.
+- Erros opacos: convite inválido, expirado, usado por outra conta ou CPF divergente retorna `404 TENANT_INVITATION_INVALID`.
 
 ## POST /auth/send-code
 
@@ -145,7 +200,8 @@ Segurança recomendada, não implementada: restringir operações de usuário ao
 ## GET /user/{userId}/orders
 
 - Controller/service: `UserController.getOrdersByUser` → `UserService.getOrderByUser`.
-- Segurança real: pública.
+- Segurança: `X-Terminal-Token`; `terminalId` do body precisa corresponder a Terminal
+  ativo, Condomínio ativo e Empresa operacional.
 - Path: `userId`; query: `page`, `size`, `sort`.
 - Resposta: `Page<OrderDTO>` com ID, status, valores e data.
 - Tenant: consulta apenas por usuário, sem principal/empresa.
@@ -503,9 +559,12 @@ Todos esses endpoints derivam a Empresa de `EmpresaContext`; nenhum aceita `empr
 ## GET /pagamento/terminal/{carrinho_id}
 
 - Controller/service: `PagamentoController.getPagamento` → `PagamentoService.gerarCobranca`.
-- Segurança real: pública.
+- Segurança: `X-Terminal-Token` e `X-Terminal-Id`; alias legado marcado deprecated.
 - Resposta: `200 true` quando a execução síncrona termina.
-- Efeitos: em transação local, reutiliza/cria Order, congela OrderItems, reserva estoque, cria/vincula `PaymentAttempt PENDING` e marca o carrinho `PAYMENT_PENDING`; após o commit chama o Mercado Pago; em nova transação persiste IDs, status e metadados remotos na tentativa.
+- Efeitos: em transação local, reutiliza/cria Order, congela OrderItems e totais,
+  valida/reserva o cupom, reserva estoque, cria/vincula `PaymentAttempt PENDING` e
+  marca o carrinho `PAYMENT_PENDING`; após o commit chama o Mercado Pago; em nova
+  transação persiste IDs, status e metadados remotos na tentativa.
 - Dependências: terminal precisa de `mercadoPagoTerminalId` e empresa de `MercadoPagoConta`.
 - Erros: resposta externa inválida gera conflito de estado; HTTP/timeout/indisponibilidade externos são sanitizados como `502`.
 
@@ -514,12 +573,19 @@ Este GET é um alias legado. Novas versões do Terminal devem usar o POST abaixo
 ## POST /pagamento/terminal/{carrinho_id}
 
 - Controller/service: `PagamentoController.iniciarPagamentoPoint` → `PagamentoService.gerarCobranca`.
-- Segurança HTTP: pública temporariamente; tenant é derivado do carrinho/terminal e comparado com `EmpresaContext` quando presente.
-- Efeito: bloqueia o carrinho, cria ou reutiliza a Order, reserva estoque e envia uma única cobrança Point.
+- Segurança: `X-Terminal-Token` e `X-Terminal-Id`; o backend carrega o Terminal e
+  valida Carrinho, Order, Condomínio e Empresa. Cross-tenant responde 404.
+- Efeito: bloqueia o carrinho, cria ou reutiliza a Order, congela o preço, reserva
+  estoque e envia uma única cobrança Point. O request não informa total nem novo cupom.
 - Pré-condições: itens persistidos e não vazios, snapshots válidos, subtotal positivo e coerente com `sum(unitPrice * quantity)`, e tenant coerente entre carrinho, itens, produtos e terminal.
-- Idempotência: Order única por carrinho, tentativa persistida antes da chamada externa, lock pessimista por carrinho/Terminal e `X-Idempotency-Key` estável da `PaymentAttempt`.
+- Idempotência: Order única por carrinho, tentativa persistida antes da chamada externa,
+  lock pessimista por carrinho/Terminal, tentativa ativa única no MySQL e
+  `X-Idempotency-Key` estável da `PaymentAttempt`.
 - Concorrência: no máximo uma Order intermediária por Terminal. Uma nova requisição para outro carrinho recebe `409 PAYMENT_ALREADY_ACTIVE` com `orderId`, `paymentAttemptId`, `cartId` e `paymentStatus` da tentativa existente.
-- Erros externos: classificação interna em `AUTHENTICATION`, `TERMINAL_NOT_FOUND`, `ACTIVE_CHARGE`, `IDEMPOTENCY_CONFLICT`, `INVALID_REQUEST`, `TIMEOUT`, `UNAVAILABLE` e `UNKNOWN`; resposta pública sanitizada como `502`.
+- Retry: `FAILED`, `CANCELED` e `EXPIRED` criam novo attempt. `PENDING`,
+  `ACTION_REQUIRED`, `UNKNOWN` e `CANCELLING` bloqueiam outro attempt.
+- Erros estruturados incluem `PAYMENT_ALREADY_ACTIVE`, `ORDER_PRICE_NOT_FINALIZED`,
+  `CART_NOT_OWNED`, `ORDER_NOT_OWNED` e `COUPON_*`. Erros externos são sanitizados.
 - Resposta `200 PointPaymentResponse`:
 
 ```json
@@ -532,26 +598,35 @@ Este GET é um alias legado. Novas versões do Terminal devem usar o POST abaixo
   "mercadoPagoStatus": "created",
   "transactionId": null,
   "statusDetail": null,
-  "message": "Cobrança enviada para a maquininha; pressione o botão verde e siga as instruções"
+  "message": "Cobrança enviada para a maquininha; pressione o botão verde e siga as instruções",
+  "remoteOrderId": "id-remoto-ou-null",
+  "cancellationRequested": false,
+  "attemptStatus": "PENDING"
 }
 ```
 
 ## GET /order/{orderId}/status?terminalId={terminalId}
 
-O backend valida a correlação entre Order e Terminal. Para `PENDING`, `CREATED`, `AT_TERMINAL` ou `ACTION_REQUIRED`, consulta a Order Point por `Order.mpOrderId` antes de responder. Falha temporária do Mercado Pago preserva o estado intermediário e retorna `reconciled=false`; status definitivo local não gera consulta desnecessária.
+Exige `X-Terminal-Token`. O backend valida a correlação entre Order e Terminal. Para
+estado não terminal, consulta a Order Point quando há ID remoto. `UNKNOWN` sem ID pode
+reenviar tecnicamente o mesmo attempt/chave após cooldown. Falha temporária preserva
+o bloqueio e retorna `reconciled=false`; status definitivo local não gera consulta.
 
 Resposta `PaymentStatusResponse`: `type`, `orderId`, `cartId`, `paymentId`, `paymentAttemptId`, `terminalId`, `status`, `mercadoPagoStatus`, `transactionId`, `statusDetail`, `message`, `amount`, `updatedAt` e `reconciled`. `amount` permite recompor o total da tela aprovada após reinício sem duplicar o carrinho no cliente. Nenhuma credencial OAuth é exposta. Veja [[payment-reconciliation]].
 
 - Finalidade: recuperar o estado após perda/reconexão do WebSocket sem criar nova cobrança.
-- Segurança HTTP: pública temporariamente; o terminal informado precisa ser exatamente o terminal do carrinho da Order.
+- Segurança: `X-Terminal-Token`; o terminal informado precisa ser exatamente o Terminal
+  persistido do carrinho da Order.
 - Resposta: o mesmo `PointPaymentResponse` usado no início e no WebSocket.
 - Erro: `404` quando a Order não existe ou pertence a outro terminal.
 
 ## GET /pagamento/terminal/{terminalId}/ativo
 
 - Finalidade: recuperar pagamento após reinício do processo/Raspberry ou perda dos IDs em memória.
-- Segurança HTTP: pública temporariamente; o `terminalId` limita a busca.
-- Comportamento: localiza a Order mais antiga em `PENDING`, `CREATED`, `AT_TERMINAL` ou `ACTION_REQUIRED` e chama `PaymentReconciliationService` antes de responder. Tentativa `PENDING` sem ID remoto pode repetir, após cooldown, a mesma submissão e a mesma chave de idempotência.
+- Segurança: `X-Terminal-Token`; o `terminalId` identifica e autoriza o Terminal.
+- Comportamento: localiza a Order mais antiga não resolvida e chama
+  `PaymentReconciliationService`. Attempt `UNKNOWN` sem ID remoto pode repetir, após
+  cooldown, a mesma submissão e chave; nunca cria novo attempt.
 - Resposta: `200 PaymentStatusResponse`; `204` quando não há tentativa não resolvida.
 - Garantia: o endpoint nunca cria uma `PaymentAttempt` nova.
 
@@ -751,6 +826,16 @@ Retorna as 100 ocorrências mais recentes, ativas e resolvidas, sem apagar o his
 - Handshake STOMP sem autenticação, origem por padrão curinga.
 - Broker simples em memória; não há `@MessageMapping` de entrada.
 - `PaymentSocketService` publica o mesmo `PaymentEvent` após commit em `/topic/payment/{terminalId}`.
+
+## POST /pagamento/terminal/order/{orderId}/cancelamento
+
+Exige `X-Terminal-Token`, recebe `terminalId` como query parameter e não recebe body.
+Valida Order/Terminal, persiste `CANCELLING` e a chave idempotente antes da chamada
+externa e devolve `PaymentStatusResponse`. `cancellationRequested=true` com status
+intermediário não significa cancelamento confirmado; o cliente continua bloqueado e
+reconciliando. Aprovação confirmada concorrente prevalece.
+
+`PointPaymentResponse` e `PaymentStatusResponse` incluem `remoteOrderId` e `cancellationRequested`. Esses campos não carregam credenciais e não autorizam o cliente a chamar o Mercado Pago.
 
 # Administração agregada
 

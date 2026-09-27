@@ -10,6 +10,18 @@ Esta base descreve o backend conforme o código presente no repositório. O cód
 - [[mapa-projeto]] — mapa dos packages e responsabilidades reais das classes.
 - [[api]] — catálogo completo das rotas e matriz da segurança atualmente configurada.
 - [[client-contracts]] — correspondência entre DTOs backend, models Flutter e cache/estado do Terminal.
+- [[app-cliente]] — fachada móvel autenticada, catálogo, compras, fidelidade, cupons, QRs e consumidores do Terminal.
+- [[app-cliente/account-tenant-link]] — vínculo autorizado de conta, Empresa e Condomínio.
+- [[app-cliente/cpf-verification]] — estados e prova de verificação do CPF.
+- [[app-cliente/historical-purchase-claim]] — claim tenant-aware e ausência de fidelidade retroativa.
+- [[app-cliente/identity-hash-secret]] — configuração, fail-fast e limite de rotação do HMAC.
+- [[app-cliente/integration-tests]] — matriz de integração, security, tenant e ownership.
+- [[app-cliente/p1b-audit]] — auditoria de configuração, fidelidade, recompensas e cupons antes/depois do P1-B.
+- [[app-cliente/app-client-config]] — configuração e feature flags por Empresa.
+- [[app-cliente/loyalty-config]] — modos `NONE`, `POINTS`, `CASHBACK` e invariantes.
+- [[app-cliente/rewards]] — CRUD gestor, validações, elegibilidade e tenant.
+- [[app-cliente/coupons]] — snapshot financeiro e constraints cross-tenant.
+- [[app-cliente/security]] — roles, resolução de Empresa, defesa no banco e OpenAPI.
 - [[auditoria-resumo]] — estado executivo, principais riscos e resultado das verificações.
 
 ## Infraestrutura e dados
@@ -50,7 +62,14 @@ Esta base descreve o backend conforme o código presente no repositório. O cód
 - [[mercado-pago]] — OAuth, Point Orders, webhook, filas Redis e fluxos de pagamento.
 - [[mercado-pago-account-lifecycle]] — exclusividade ativa, histórico, reutilização, unlink e substituição de conta/Point.
 - [[payment-reconciliation]] — recuperação após backend/webhook offline, endpoint, scheduler, startup e idempotência.
+- [[payment-point-flow]] — loading curto, tela Point, cancelamento integral e proteção contra segunda cobrança.
 - [[payment-recovery]] — regra ponta a ponta contra cobrança duplicada, máquina de estados e roteiro operacional com Point offline.
+- [[payment/payment-transaction-audit]] — auditoria do fluxo financeiro anterior ao P1-C.
+- [[payment/order-price-finalization]] — pipeline autoritativa, snapshot e congelamento do preço.
+- [[payment/payment-attempt-policy]] — múltiplas tentativas, estados, retry e idempotência.
+- [[payment/coupon-payment-coordination]] — reserva, consumo e liberação transacional do cupom.
+- [[payment/payment-concurrency]] — locks, constraint de tentativa ativa e tratamento de `UNKNOWN`.
+- [[payment/terminal-payment-authorization]] — credencial interna e ownership Terminal/tenant.
 - [[comprovante-compra]] — solicitação explícita e idempotente Spring Boot → FastAPI → n8n para comprovante PNG.
 
 ## Auditoria e evolução
@@ -60,4 +79,8 @@ Esta base descreve o backend conforme o código presente no repositório. O cód
 
 ## Escopo desta documentação
 
-O schema executável é definido por treze migrations (`V1` a `V13`). A V11 adiciona o branding dinâmico da Empresa, a V12 adiciona os ciclos de vida de conta Mercado Pago, Point, Empresa e Terminal, e a V13 adiciona leads comerciais públicos. A cadeia histórica V1–V26 foi removida do caminho ativo e exige recriação do banco de desenvolvimento.
+O schema executável é definido por dezenove migrations (`V1` a `V19`). A V17
+adiciona o convite seguro de vínculo conta/tenant e a V18 fecha o P1-B de configuração,
+fidelidade, recompensas, cupons e constraints. A V19 fecha preço, cupom e tentativa
+de pagamento. A cadeia histórica V1–V26 foi
+removida do caminho ativo e exige recriação do banco de desenvolvimento.

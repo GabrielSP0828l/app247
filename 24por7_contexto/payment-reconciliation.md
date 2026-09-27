@@ -21,7 +21,10 @@ O identificador remoto é persistido em `PaymentAttempt.providerOrderId` (com ac
 
 ## Estados e transições
 
-São reconciliáveis `PENDING`, `CREATED`, `AT_TERMINAL` e `ACTION_REQUIRED`. `PROCESSED`, `FAILED`, `CANCELED`, `EXPIRED` e `REFUNDED` não geram consulta sob demanda. O mapeamento continua centralizado em `MercadoPagoStatusMapper`:
+São reconciliáveis Orders `PENDING`, `CREATED`, `AT_TERMINAL` e `ACTION_REQUIRED`.
+O attempt pode estar `UNKNOWN` ou `CANCELLING` enquanto a Order conserva um desses
+estados. `PROCESSED`, `FAILED`, `CANCELED`, `EXPIRED` e `REFUNDED` não geram consulta
+sob demanda. O mapeamento continua centralizado em `MercadoPagoStatusMapper`:
 
 | Mercado Pago | PaymentAttempt | Terminal |
 |---|---|---|
@@ -50,7 +53,16 @@ A Order, o carrinho e uma `PaymentAttempt PENDING` são confirmados atomicamente
 
 Se um webhook chegar entre o HTTP 201 e a segunda transação, ele já encontra a tentativa local pela referência externa. O webhook pode anexar o ID remoto à tentativa e aplicar o estado; a persistência posterior de `created` não regride um estado mais novo como `CANCELED` ou `PROCESSED`.
 
-Se o POST remoto terminar com timeout antes de o backend persistir a resposta, a tentativa continua `PENDING` sem `providerOrderId`: isso significa resultado desconhecido, não rejeição. Após o cooldown, startup, scheduler ou status query repetem o mesmo POST com o `idempotencyKey` já persistido. `PointPaymentSubmissionService` serializa a operação por Order na instância; a chave idempotente e suas constraints são a barreira entre instâncias. Cada submissão atualiza `PaymentAttempt.updatedAt` antes da chamada para impedir polling externo agressivo. Se a repetição devolver uma Order já terminal, o ID remoto é persistido e o estado passa pela mesma máquina monotônica.
+Se o POST remoto terminar com timeout antes de o backend persistir a resposta, a
+tentativa vira `UNKNOWN` sem `providerOrderId`: isso significa resultado desconhecido,
+não rejeição. Após o cooldown, startup, scheduler ou status query repetem o mesmo POST
+com o `idempotencyKey` já persistido. `PointPaymentSubmissionService` serializa a
+operação por Order na instância; a chave idempotente e suas constraints são a barreira
+entre instâncias. Se a repetição devolver uma Order já terminal, o ID remoto é
+persistido e o estado passa pela mesma máquina monotônica. `UNKNOWN` impede qualquer
+novo attempt e conserva o cupom reservado.
+
+Exceção de segurança: depois que `cancellation_requested_at` é persistido, uma tentativa `PENDING` sem `providerOrderId` não repete a submissão. O resultado permanece desconhecido e bloqueado até que descoberta/reconciliação forneça a identidade ou um estado terminal. Cancelamento, timeout e recuperação completos estão em [[payment-point-flow]].
 
 Uma Order em estado de pagamento sem tentativa é violação de integridade: gera log `ORDER_WITHOUT_PAYMENT` e não recebe tentativa retroativa silenciosa. O scheduler seleciona Orders intermediárias que já possuem tentativa, inclusive as que ainda não têm ID remoto, usando `exists` compatível com MySQL 8.
 
@@ -58,7 +70,11 @@ Configuração: `PAYMENT_RECONCILIATION_DELAY_MS`, `PAYMENT_RECONCILIATION_INITI
 
 ## Idempotency-Key e cardinalidade
 
-O modelo é `Carrinho 1 -> 0..1 Order 1 -> N PaymentAttempt`. Cada tentativa persiste `attemptNumber`, `idempotencyKey` e `externalReference`; repetição HTTP da mesma tentativa reutiliza esses valores. Retry futuro cria uma nova tentativa e nunca reabre uma encerrada. O fluxo atual inicia apenas a primeira tentativa, mas o schema já admite tentativas e valores adicionais.
+O modelo é `Carrinho 1 -> 0..1 Order 1 -> N PaymentAttempt`. Cada tentativa persiste
+`attemptNumber`, `amountRequested`, `idempotencyKey` e `externalReference`; repetição
+HTTP da mesma tentativa reutiliza esses valores. Retry financeiro após `FAILED`,
+`CANCELED` ou `EXPIRED` cria uma nova tentativa e nunca reabre a encerrada. A coluna
+gerada/unique da V19 impede duas tentativas ativas por Order.
 
 ## Contrato do status
 
@@ -79,7 +95,10 @@ Os dois endpoints de recuperação devolvem `PaymentStatusResponse` sem credenci
   "message": "Pagamento aprovado",
   "amount": 10.00,
   "updatedAt": "2026-08-28T01:00:00",
-  "reconciled": true
+  "reconciled": true,
+  "remoteOrderId": "id-da-order-remota",
+  "cancellationRequested": false,
+  "attemptStatus": "PROCESSED"
 }
 ```
 

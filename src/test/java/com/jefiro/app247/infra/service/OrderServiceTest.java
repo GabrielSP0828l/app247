@@ -36,6 +36,7 @@ class OrderServiceTest {
     @Mock UserService userService;
     @Mock ProdutoService produtoService;
     @Mock ApplicationEventPublisher eventPublisher;
+    @Mock OrderPriceFinalizationService priceFinalizationService;
     @InjectMocks OrderService service;
 
     @Test
@@ -78,7 +79,7 @@ class OrderServiceTest {
         produtoCompleto.setEmpresa(empresa);
         produtoCompleto.setCodigoInterno("asdaw3");
 
-        when(carrinhoService.getById("carrinho-a")).thenReturn(carrinho);
+        when(carrinhoService.getByIdForUpdate("carrinho-a")).thenReturn(carrinho);
         when(repository.findByCarrinhoIdCarrinho("carrinho-a")).thenReturn(Optional.empty());
         when(produtoService.buscarPorIdDoTenant("produto-a", "empresa-a"))
                 .thenReturn(produtoCompleto);

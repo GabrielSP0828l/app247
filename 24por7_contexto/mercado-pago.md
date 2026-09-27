@@ -208,6 +208,9 @@ A recuperação de pagamentos Point está detalhada em [[payment-reconciliation]
 - Access token expirado não é renovado automaticamente.
 - Status externo futuro é ignorado e não fica em uma DLQ/auditoria permanente.
 - Versão externa, lock e máquina de estados protegem monotonicidade.
-- Cancelamento Point seguro ainda não possui endpoint de produção. Por isso o Terminal não oferece botão que apenas limpe estado; cancelamento incerto continua bloqueado até existir confirmação remota.
+- Cancelamento Point usa o endpoint autenticado
+  `POST /pagamento/terminal/order/{orderId}/cancelamento`, persiste intenção/chave
+  antes do provedor e mantém `CANCELLING` em resultado incerto. Aprovação concorrente
+  prevalece e cancelamento não confirmado não libera novo attempt.
 
 `PT15M` é o padrão documentado da API Orders Point, mas esta aplicação configura `PT5M`; ambos são durações ISO-8601 dentro da faixa oficial de 30 segundos a 3 horas. A resposta inicial oficial é `201` com status `created`, portanto nunca equivale a aprovação. Referências consultadas: [criação de order](https://www.mercadopago.com.br/developers/pt/reference/in-person-payments/point/orders/create-order/post), [status Point](https://www.mercadopago.com.br/developers/pt/docs/mp-point/resources/status-order-transaction) e [notificações](https://www.mercadopago.com.br/developers/pt/docs/mp-point/notifications).

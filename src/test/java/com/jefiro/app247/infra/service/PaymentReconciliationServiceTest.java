@@ -196,6 +196,22 @@ class PaymentReconciliationServiceTest {
     }
 
     @Test
+    void cancelamentoSolicitadoSemIdRemotoNaoReenviaCobrancaIncerta() {
+        order.setStatus(OrderStatus.PENDING);
+        order.getPagamento().setProviderOrderId(null);
+        order.getPagamento().setCancellationRequestedAt(Instant.now());
+        order.getPagamento().setUpdatedAt(Instant.now().minusSeconds(30));
+        when(orderService.getOrderForTerminal("order-a", "terminal-a")).thenReturn(order);
+
+        var response = service.reconcileForTerminal("order-a", "terminal-a");
+
+        assertThat(response.status().name()).isEqualTo("WAITING_PAYMENT");
+        assertThat(response.cancellationRequested()).isTrue();
+        assertThat(response.reconciled()).isFalse();
+        verifyNoInteractions(submissionService, queryService);
+    }
+
+    @Test
     void startupDoTerminalDescobreEReconciliaTentativaAtiva() {
         when(orderRepository.findUnresolvedPaymentOrderIdsForTerminal(
                 eq("terminal-a"), anyList(), any())).thenReturn(List.of("order-a"));

@@ -101,6 +101,12 @@ public class PaymentReconciliationService {
         if (order.getMpOrderId() != null) {
             return reconcile(order, origin);
         }
+        if (order.getPagamento() != null
+                && order.getPagamento().getCancellationRequestedAt() != null) {
+            log.warn("[PAYMENT-CANCEL] envio remoto incerto não será repetido após pedido de cancelamento orderId={} attemptId={}",
+                    order.getIdOrder(), order.getPagamento().getIdPagamento());
+            return false;
+        }
         if (!isUnknownSubmissionEligible(order)) {
             log.info("[PAYMENT-RECOVERY] aguardando cooldown origin={} orderId={} attemptId={} status={}",
                     origin, order.getIdOrder(),

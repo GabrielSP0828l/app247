@@ -9,7 +9,10 @@ import java.util.List;
 
 public record CarrinhoRequest(
         @NotBlank String terminalId,
-        @NotEmpty List<@NotNull @Valid ItemRequest> items
-
+        @NotEmpty List<@NotNull @Valid ItemRequest> items,
+        String cpf
 ) {
+    public CarrinhoRequest(String terminalId, List<ItemRequest> items) {
+        this(terminalId, items, null);
+    }
 }

@@ -5,12 +5,21 @@ import com.jefiro.app247.domain.model.Order;
 import com.jefiro.app247.domain.model.PaymentAttempt;
 import com.jefiro.app247.domain.model.dto.OrderResponse;
 import com.jefiro.app247.domain.model.dto.PointPaymentResponse;
+import com.jefiro.app247.domain.model.appclient.CustomerCoupon;
+import com.jefiro.app247.domain.model.enum_type.CarrinhoStatus;
+import com.jefiro.app247.domain.model.enum_type.PagamentoStatus;
 import com.jefiro.app247.domain.model.enum_type.order.OrderStatus;
 import com.jefiro.app247.domain.model.enum_type.order.StatusDetail;
 import com.jefiro.app247.infra.repository.OrderRepository;
 import com.jefiro.app247.infra.repository.PagamentoRepository;
 import com.jefiro.app247.infra.repository.TerminalRepository;
 import com.jefiro.app247.infra.exception.PaymentAlreadyActiveException;
+import com.jefiro.app247.infra.exception.ApiBusinessException;
+import com.jefiro.app247.infra.event.OrderNotCompletedEvent;
+import com.jefiro.app247.infra.event.OrderPaymentRetryEvent;
+import com.jefiro.app247.infra.repository.CustomerCouponRepository;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -46,6 +55,14 @@ public class PointPaymentPersistenceService {
     EmpresaService empresaService;
     @Autowired
     TerminalRepository terminalRepository;
+    @Autowired
+    CustomerCouponRepository couponRepository;
+    @Autowired
+    OrderPriceFinalizationService priceFinalizationService;
+    @Autowired
+    TerminalRequestAuthorizationService terminalAuthorization;
+    @Autowired
+    ApplicationEventPublisher eventPublisher;
 
     public PointPaymentPersistenceService(
             CarrinhoService carrinhoService,
@@ -61,14 +78,25 @@ public class PointPaymentPersistenceService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public PreparedAttempt prepare(String carrinhoId) {
+        return prepare(carrinhoId, null);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public PreparedAttempt prepare(String carrinhoId, String authenticatedTerminalId) {
         Carrinho carrinho = carrinhoService.getByIdForUpdate(carrinhoId);
+        if (authenticatedTerminalId != null
+                && !authenticatedTerminalId.equals(carrinho.getIdTerminal())) {
+            throw new ApiBusinessException(HttpStatus.NOT_FOUND, "CART_NOT_OWNED",
+                    "Carrinho não pertence ao Terminal autenticado");
+        }
         String empresaId = carrinho.getEmpresa().getId();
         empresaService.getEmpresaOperacionalForUpdate(empresaId);
         configurationService.requireConfigured(carrinho.getTerminal(), empresaId);
 
         String terminalId = carrinho.getIdTerminal();
-        terminalRepository.findByIdForPaymentUpdate(terminalId)
+        var lockedTerminal = terminalRepository.findByIdForPaymentUpdate(terminalId)
                 .orElseThrow(() -> new IllegalStateException("Terminal do carrinho não existe"));
+        terminalAuthorization.requireCartOwnership(lockedTerminal, carrinho);
         String currentOrderId = orderRepository.findByCarrinhoIdCarrinho(carrinhoId)
                 .map(Order::getIdOrder)
                 .orElse(null);
@@ -86,12 +114,29 @@ public class PointPaymentPersistenceService {
         }
 
         Order order = orderService.criarCobranca(carrinho);
-        boolean paymentCreated = false;
+        terminalAuthorization.requireOrderOwnership(lockedTerminal, order);
+        boolean paymentCreated;
+        PaymentAttempt current = order.getPagamento();
 
-        if (order.getPagamento() == null) {
-            PaymentAttempt pagamento = pagamentoRepository.save(new PaymentAttempt(order));
-            order.setPagamento(pagamento);
+        if (current == null) {
+            priceFinalizationService.finalizeForPayment(order, Instant.now());
+            PaymentAttempt pagamento = createAttempt(order);
             paymentCreated = true;
+        } else if (current.getStatus().isActive()) {
+            priceFinalizationService.validateFrozen(order, Instant.now());
+            paymentCreated = false;
+        } else if (current.getStatus().allowsFinancialRetry()) {
+            CustomerCoupon coupon = order.getCoupon() == null ? null
+                    : couponRepository.findForUpdate(order.getCoupon().getId(), empresaId)
+                    .orElseThrow(() -> new ApiBusinessException(HttpStatus.CONFLICT,
+                            "COUPON_RESERVATION_MISMATCH", "Cupom da Order não foi encontrado"));
+            priceFinalizationService.prepareFinancialRetry(order, coupon, Instant.now());
+            PaymentAttempt pagamento = createAttempt(order);
+            eventPublisher.publishEvent(new OrderPaymentRetryEvent(order, pagamento.getAttemptNumber()));
+            paymentCreated = true;
+        } else {
+            throw new ApiBusinessException(HttpStatus.CONFLICT, "ORDER_NOT_PAYABLE",
+                    "Order já foi paga ou não permite nova tentativa");
         }
 
         orderRepository.saveAndFlush(order);
@@ -106,6 +151,20 @@ public class PointPaymentPersistenceService {
                 paymentCreated && order.getMpOrderId() == null,
                 order.getMpOrderId()
         );
+    }
+
+    private PaymentAttempt createAttempt(Order order) {
+        if (order.getTotalCobrado() == null || order.getTotalCobrado().signum() <= 0) {
+            throw new ApiBusinessException(HttpStatus.CONFLICT, "ORDER_PRICE_NOT_FINALIZED",
+                    "Total final da Order deve ser positivo");
+        }
+        PaymentAttempt pagamento = pagamentoRepository.save(new PaymentAttempt(order));
+        if (pagamento.getValor().compareTo(order.getTotalCobrado()) != 0) {
+            throw new ApiBusinessException(HttpStatus.CONFLICT, "ORDER_PRICE_NOT_FINALIZED",
+                    "Valor da tentativa diverge do total congelado da Order");
+        }
+        order.setPagamento(pagamento);
+        return pagamento;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -160,9 +219,50 @@ public class PointPaymentPersistenceService {
         if (order.getMpOrderId() != null) {
             return false;
         }
+        if (pagamento.getStatus() != PagamentoStatus.PENDING
+                && pagamento.getStatus() != PagamentoStatus.UNKNOWN) {
+            return false;
+        }
         pagamento.setUpdatedAt(Instant.now());
         pagamentoRepository.saveAndFlush(pagamento);
         return true;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public PointPaymentResponse markUnknown(String orderId, String attemptId, String detail) {
+        PaymentAttempt attempt = pagamentoRepository.findByIdForUpdate(attemptId)
+                .orElseThrow(() -> new IllegalStateException("Tentativa de pagamento não existe"));
+        if (!orderId.equals(attempt.getOrder().getIdOrder())) {
+            throw new IllegalStateException("Tentativa pertence a outra Order");
+        }
+        if (attempt.getStatus().isActive()) {
+            attempt.setStatus(PagamentoStatus.UNKNOWN);
+            attempt.setStatusDetail(detail);
+            pagamentoRepository.saveAndFlush(attempt);
+        }
+        return PointPaymentResponse.from(attempt.getOrder());
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public PointPaymentResponse markDefinitiveSubmissionFailure(
+            String orderId, String attemptId, String detail) {
+        PaymentAttempt attempt = pagamentoRepository.findByIdForUpdate(attemptId)
+                .orElseThrow(() -> new IllegalStateException("Tentativa de pagamento não existe"));
+        Order order = attempt.getOrder();
+        if (!orderId.equals(order.getIdOrder())) {
+            throw new IllegalStateException("Tentativa pertence a outra Order");
+        }
+        if (attempt.getStatus().isActive()) {
+            attempt.setStatus(PagamentoStatus.FAILED);
+            attempt.setStatusDetail(detail);
+            attempt.setFinishedAt(Instant.now());
+            order.setStatus(OrderStatus.FAILED);
+            if (order.getCarrinho() != null) order.getCarrinho().setStatus(CarrinhoStatus.CANCELED);
+            pagamentoRepository.saveAndFlush(attempt);
+            orderRepository.saveAndFlush(order);
+            eventPublisher.publishEvent(new OrderNotCompletedEvent(order, false));
+        }
+        return PointPaymentResponse.from(order);
     }
 
     private PaymentAttempt requirePayment(Order order) {

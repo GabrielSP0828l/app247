@@ -18,13 +18,12 @@ public class TokenService {
     public String generateToken(User user) {
         try {
             Algorithm algorithm = Algorithm.HMAC256(senha);
-            String token = JWT.create()
+            JWTCreator.Builder builder = JWT.create()
                     .withSubject(user.getCpf())
                     .withClaim("userId", user.getIdUser())
-                    .withClaim("empresaId", user.getEmpresa().getId())
-                    .withExpiresAt(genereteExpirationDate())
-                    .sign(algorithm);
-            return token;
+                    .withExpiresAt(genereteExpirationDate());
+            if (user.getEmpresa() != null) builder.withClaim("empresaId", user.getEmpresa().getId());
+            return builder.sign(algorithm);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

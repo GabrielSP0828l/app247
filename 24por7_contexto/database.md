@@ -52,6 +52,30 @@ Tabelas que repetem `empresa_id` o fazem como redundância controlada. Pais exp�
 | `V10__inventory_and_product_import.sql` | inventário físico, jobs de importação e referências no ledger |
 | `V11__company_branding.sql` | branding e tema dinâmico da Empresa |
 | `V12__mercado_pago_and_terminal_lifecycle.sql` | histórico/exclusividade ativa MP, Point e reset durável de Terminal |
+| `V13__marketing_leads.sql` | contatos comerciais públicos e auditáveis |
+| `V14__payment_cancellation_intent.sql` | intenção idempotente de cancelamento Point |
+| `V15__app_cliente.sql` | configuração móvel, fidelidade, recompensas, cupons, preferências e suporte |
+| `V16__client_registration_identity.sql` | cadastro global, estado de verificação e identidade histórica por HMAC |
+| `V17__secure_account_tenant_link.sql` | convite autorizado de vínculo conta/Empresa/Condomínio |
+| `V18__app_client_management_and_financial_constraints.sql` | configuração 1:1 por Empresa, recompensas administráveis e constraints tenant/financeiras |
+| `V19__order_price_payment_attempt_and_terminal_authorization.sql` | snapshot financeiro da Order, vínculo de cupom e tentativa ativa única |
+
+### Dados do App Cliente
+
+`app_cliente_config` define features e modo de fidelidade por Empresa; `empresa_id` é
+PK/FK, logo há no máximo uma configuração explícita por tenant. As combinações
+`NONE/POINTS/CASHBACK`, taxas e flags derivadas possuem checks.
+
+`loyalty_account` e `loyalty_movement` mantêm saldo e movimentos idempotentes por
+conta. A V18 adiciona Empresa ao movimento e FKs compostas para conta e Order, além
+de impedir saldos negativos e movimentos sem um único delta.
+
+`reward`, `customer_coupon` e `reward_redemption` implementam resgate atômico e o
+ciclo `AVAILABLE/RESERVED/USED/EXPIRED/CANCELLED`. Reward suporta descrição,
+validade em dias, limite por usuário, mínimo e máximo. Coupon conserva snapshot
+financeiro e usa FKs tenant-aware para User, Reward e Order; uma Order só pode ter um
+cupom associado e cada resgate possui um único cupom. `app_cliente_preference` e
+`purchase_support` guardam preferências e protocolos com FKs tenant-aware.
 
 ## Tabelas finais
 
@@ -69,7 +93,17 @@ Unidade operacional da empresa. Possui endereço exclusivo opcional, CNPJ opcion
 
 ### `users`
 
-Identidade autenticável. Pertence obrigatoriamente à empresa e opcionalmente ao condomínio da mesma empresa. CPF e e-mail permanecem globais por serem usados na autenticação sem seletor de tenant.
+Identidade autenticável. Uma conta App Cliente pode começar com Empresa e Condomínio
+nulos; depois do convite autorizado, pertence a exatamente uma Empresa e a no máximo
+um Condomínio da mesma Empresa. A FK composta impede vínculo cross-tenant. CPF e
+e-mail permanecem globais por serem usados na autenticação sem seletor de tenant.
+
+### `customer_identity` e `tenant_link_invitation`
+
+`customer_identity` identifica CPF histórico por HMAC dentro da Empresa e pode ser
+claimed por usuário da mesma Empresa. `tenant_link_invitation` prende token opaco,
+CPF em HMAC, Empresa e Condomínio, com expiração e consumo único. O hash do token é
+único; a relação Condomínio/Empresa usa FK composta.
 
 ### `terminal`
 
@@ -132,7 +166,11 @@ O carrinho é mutável. Ele congela empresa, condomínio e terminal coerentes po
 
 ### `orders` e `order_item`
 
-`orders` representa a venda/intenção de checkout, não uma tentativa. Um carrinho origina no máximo uma Order. Guarda subtotal, desconto, total calculado e total cobrado separadamente.
+`orders` representa a venda/intenção de checkout, não uma tentativa. Um carrinho
+origina no máximo uma Order. Guarda subtotal original, subtotal pós-promoções,
+desconto promocional, desconto de cupom, desconto total, total calculado, total
+cobrado, cupom e `price_finalized_at`. O `CHECK` da V19 valida a identidade entre os
+valores e a FK composta `(coupon_id, empresa_id)` impede cupom cross-tenant.
 
 `order_item` é um snapshot imutável e independente do `cart_item`: produto, SKU, código de barras usado, nome, unidade, quantidade, preço original/aplicado, promoção, desconto e subtotal. `fiscal_snapshot_version` e `fiscal_snapshot` ficam opcionais para a futura NFC-e; não existe emissor fiscal nesta fase.
 
@@ -151,6 +189,11 @@ Constraints:
 - `UNIQUE (provider, external_reference)`;
 - `UNIQUE (provider, provider_order_id)` quando o ID não é nulo;
 - `UNIQUE (provider, provider_payment_id)` quando o ID não é nulo.
+
+A V19 acrescenta a coluna gerada `active_order_id`: ela recebe `order_id` somente
+para `PENDING`, `ACTION_REQUIRED`, `UNKNOWN` e `CANCELLING`. A unique dessa coluna
+garante no banco no máximo uma tentativa não terminal por Order. Retry após
+`FAILED`, `CANCELED` ou `EXPIRED` cria o próximo `attempt_number`.
 
 ### `payment_event`
 
@@ -208,4 +251,10 @@ Registro append-only de ações administrativas e excepcionais, com ator, entida
 
 Esta baseline é destrutiva e não é compatível por checksum ou estrutura com V1–V26. Um ambiente antigo deve ter o banco recriado antes de subir a aplicação. Não se deve apagar apenas `flyway_schema_history` mantendo as tabelas antigas: o procedimento correto é criar um schema vazio, executar Flyway e iniciar com `ddl-auto=validate`.
 
-O teste `DatabaseBaselineMySqlTest` automatiza `MySQL vazio → 13 migrations → 38 tabelas → Hibernate validate`, além das constraints de tenant, SKU/barcode, estoque central/condomínio, estoque fracionado negativo, snapshots, inventário, múltiplas tentativas, exclusividade ativa Mercado Pago e persistência de leads comerciais.
+O teste `DatabaseBaselineMySqlTest` automatiza
+`MySQL vazio → 19 migrations → Hibernate validate`, além das constraints
+de tenant, convite conta/tenant, SKU/barcode, estoque central/condomínio, estoque
+fracionado negativo, snapshots, inventário, múltiplas tentativas, exclusividade ativa
+Mercado Pago, persistência de leads comerciais e invariantes P1-B de configuração,
+recompensa, cupom e movimentos de fidelidade. A V19 também é validada com tentativa
+ativa única, `CHECK` financeiro, concorrência HTTP real e isolamento cross-tenant.

@@ -22,7 +22,10 @@ public record PaymentStatusResponse(
         String message,
         BigDecimal amount,
         Instant updatedAt,
-        boolean reconciled
+        boolean reconciled,
+        String remoteOrderId,
+        boolean cancellationRequested,
+        String attemptStatus
 ) {
     public static PaymentStatusResponse from(Order order, boolean reconciled) {
         PaymentAttempt pagamento = order.getPagamento();
@@ -42,7 +45,10 @@ public record PaymentStatusResponse(
                 order.getTotalCobrado() != null ? order.getTotalCobrado() : order.getTotal(),
                 pagamento != null && pagamento.getUpdatedAt() != null
                         ? pagamento.getUpdatedAt() : order.getUpdatedAt(),
-                reconciled
+                reconciled,
+                pagamento != null ? pagamento.getProviderOrderId() : null,
+                pagamento != null && pagamento.getCancellationRequestedAt() != null,
+                pagamento != null ? pagamento.getStatus().name() : null
         );
     }
 }

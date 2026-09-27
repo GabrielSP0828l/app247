@@ -31,6 +31,9 @@ public class Carrinho {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "terminal_id", nullable = false)
     private Terminal terminal;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "customer_identity_id")
+    private CustomerIdentity customerIdentity;
     @OneToMany(mappedBy = "carrinho", fetch = FetchType.LAZY, cascade = {CascadeType.PERSIST, CascadeType.MERGE}, orphanRemoval = true)
     private List<CartItem> items = new ArrayList<>();
     @Enumerated(EnumType.STRING)

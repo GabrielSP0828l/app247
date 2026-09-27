@@ -17,6 +17,39 @@ import java.time.Instant;
 import com.jefiro.app247.domain.model.enum_type.order.OrderStatus;
 
 public interface OrderRepository extends JpaRepository<Order, String> {
+    @EntityGraph(attributePaths={"items","condominio","empresa","terminal"})
+    Optional<Order> findByIdOrderAndUserIdUserAndEmpresaId(String orderId,String userId,String empresaId);
+
+    Page<Order> findByUserIdUserAndEmpresaIdOrderByCreatedAtDesc(String userId,String empresaId,Pageable pageable);
+
+    @Query("""
+            select o from Order o
+            left join o.customerIdentity i
+            where o.empresa.id=:empresaId
+              and o.condominio.idCondominio=:condominioId
+              and (o.user.idUser=:userId or (o.user is null and i.user.idUser=:userId))
+            """)
+    Page<Order> findOwnedPage(@Param("userId") String userId,
+                              @Param("empresaId") String empresaId,
+                              @Param("condominioId") String condominioId,
+                              Pageable pageable);
+
+    @EntityGraph(attributePaths={"items","items.produto","condominio","empresa","terminal"})
+    @Query("""
+            select distinct o from Order o
+            left join o.customerIdentity i
+            where o.idOrder=:orderId and o.empresa.id=:empresaId
+              and o.condominio.idCondominio=:condominioId
+              and (o.user.idUser=:userId or (o.user is null and i.user.idUser=:userId))
+            """)
+    Optional<Order> findOwnedDetail(@Param("orderId") String orderId,
+                                    @Param("userId") String userId,
+                                    @Param("empresaId") String empresaId,
+                                    @Param("condominioId") String condominioId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select o from Order o where o.idOrder=:orderId and o.terminal.idTerminal=:terminalId")
+    Optional<Order> findForTerminalUpdate(@Param("orderId") String orderId,@Param("terminalId") String terminalId);
     @Query("""
             select count(o) as quantidadeVendas,
                    coalesce(sum(o.totalCobrado), 0) as faturamento

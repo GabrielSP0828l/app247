@@ -37,6 +37,7 @@ Não há separação por interfaces de casos de uso ou adaptadores: controllers 
 | Comprovante | `ComprovanteController`, `ComprovanteSnapshotService`, `ComprovanteService`, FastAPI | Valida venda aprovada, monta snapshot histórico, envia JSON ao Python e deixa PNG/n8n fora do Spring. |
 | Webhook | controller, validador HMAC, Redis `mp_queue`, `PaymentWorker` | Autentica, deduplica, enfileira, consulta dados faltantes e atualiza pedido/pagamento. |
 | Identidade | `UserService`, `TokenService`, filtro de segurança | BCrypt, login por CPF, JWT e códigos temporários no Redis. |
+| App Cliente | `AppClienteController`, `AppClienteService`, `TerminalQrService` | Fachada autenticada que deriva usuário/Empresa/Condomínio, expõe catálogo/compras/fidelidade e emite QRs opacos. |
 | Terminal | `TerminalService`, WebSocket handler | Ativação por serial, heartbeat/status e marcação periódica como offline. |
 
 ## Endpoints REST encontrados
@@ -65,6 +66,8 @@ Os tipos exatos de request/response são definidos pelos DTOs. As rotas administ
 | `/webhook` | `POST /mercadopago` enfileira a notificação |
 | `/files` | upload e exposição estática de arquivos em `/files/**` |
 | `/api/testes/mercadopago` | cenários de simulação, listagem, cancelamento e limpeza de orders na API Mercado Pago |
+| `/app-cliente` | bootstrap, catálogo, compras/comprovante/suporte, identificação, fidelidade, recompensas, cupons e preferências; exige JWT `USER` |
+| `/terminal` | consumo autenticado dos QRs de identificação e cupom por segredo interno |
 
 ## Fluxos internos relevantes
 

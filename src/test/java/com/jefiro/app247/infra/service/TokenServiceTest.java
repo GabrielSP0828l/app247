@@ -30,4 +30,16 @@ class TokenServiceTest {
 
         assertThrows(RuntimeException.class, () -> service.validateIdentity("invalid"));
     }
+
+    @Test
+    void contaClienteGlobalRecebeJwtSemEmpresa() {
+        TokenService service = new TokenService();
+        ReflectionTestUtils.setField(service, "senha", "test-only-jwt-secret-with-at-least-32-characters");
+        User user = User.builder().idUser("global-user").cpf("52998224725").build();
+
+        TokenService.TokenIdentity identity = service.validateIdentity(service.generateToken(user));
+
+        assertEquals("global-user", identity.userId());
+        assertNull(identity.empresaId());
+    }
 }

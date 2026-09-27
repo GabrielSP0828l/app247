@@ -12,6 +12,10 @@ public class EstoqueOrderListener {
     @EventListener
     public void reservar(OrderReservadaEvent event) { estoqueService.reservar(event.order()); }
     @EventListener
+    public void reservarRetry(OrderPaymentRetryEvent event) {
+        estoqueService.reservarRetry(event.order(), event.attemptNumber());
+    }
+    @EventListener
     public void vender(OrderPaidEvent event) { estoqueService.confirmarVenda(event.order()); }
     @EventListener
     public void liberar(OrderNotCompletedEvent event) {

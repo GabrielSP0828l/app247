@@ -32,6 +32,8 @@ public class CarrinhoService {
     private TerminalRepository terminalRepository;
     @Autowired
     private PricingService pricingService;
+    @Autowired
+    private CustomerIdentityService customerIdentityService;
 
     @Transactional
     public Carrinho save(CarrinhoRequest request) {
@@ -50,6 +52,9 @@ public class CarrinhoService {
                 .orElseThrow(() -> new IllegalArgumentException("Terminal não existe"));
         carrinho.setTerminal(terminal);
         Empresa empresa = terminal.getCondominio().getEmpresa();
+        if (request.cpf() != null && !request.cpf().isBlank()) {
+            carrinho.setCustomerIdentity(customerIdentityService.resolve(empresa, request.cpf()));
+        }
         if (EmpresaContext.get() != null && !EmpresaContext.get().equals(empresa.getId())) {
             throw new IllegalArgumentException("Terminal não pertence à empresa do contexto");
         }

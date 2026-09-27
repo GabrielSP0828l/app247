@@ -18,6 +18,8 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT: "${JWT}"
+      IDENTITY_HASH_SECRET: "${IDENTITY_HASH_SECRET:?IDENTITY_HASH_SECRET obrigatorio}"
+      TENANT_LINK_INVITATION_TTL: "${TENANT_LINK_INVITATION_TTL:-PT72H}"
       TEST_ENDPOINTS_ENABLED: "false"
       APP_CORS_ALLOWED_ORIGIN_PATTERNS: "${APP_CORS_ALLOWED_ORIGIN_PATTERNS:-http://localhost:*,http://127.0.0.1:*}"
       SMTP_HOST: "${SMTP_HOST:-smtp.gmail.com}"
@@ -37,6 +39,7 @@ services:
       COMPROVANTE_PROCESSING_TTL: "${COMPROVANTE_PROCESSING_TTL:-PT2M}"
       COMPROVANTE_SUCCESS_TTL: "${COMPROVANTE_SUCCESS_TTL:-P1D}"
       COMPROVANTE_INTERNAL_TOKEN: "${COMPROVANTE_INTERNAL_TOKEN:-}"
+      TERMINAL_INTERNAL_TOKEN: "${TERMINAL_INTERNAL_TOKEN:?TERMINAL_INTERNAL_TOKEN obrigatorio}"
       JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError}"
     depends_on:
       mysql:
@@ -63,8 +66,8 @@ services:
     init: true
     restart: unless-stopped
 
-    expose:
-      - "8000"
+    ports:
+      - "127.0.0.1:8000:8000"
 
     environment:
       N8N_COMPROVANTE_WEBHOOK_URL: "${N8N_COMPROVANTE_WEBHOOK_URL:?N8N_COMPROVANTE_WEBHOOK_URL obrigatoria}"

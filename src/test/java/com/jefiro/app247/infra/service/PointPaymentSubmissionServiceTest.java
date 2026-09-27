@@ -6,6 +6,8 @@ import com.jefiro.app247.domain.model.dto.OrderResponse;
 import com.jefiro.app247.domain.model.dto.PointPaymentResponse;
 import com.jefiro.app247.domain.model.enum_type.TerminalPaymentStatus;
 import com.jefiro.app247.domain.model.enum_type.order.OrderStatus;
+import com.jefiro.app247.infra.exception.ExternalFailureType;
+import com.jefiro.app247.infra.exception.ExternalServiceException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -116,6 +118,26 @@ class PointPaymentSubmissionServiceTest {
 
         verify(mercadoPagoCobrancaService, times(1)).createRemoteOrder("order-a");
         verify(persistenceService, times(1)).persistRemoteAcceptance("order-a", remote);
+    }
+
+    @Test
+    void timeoutRemotoMarcaMesmaTentativaComoUnknownEBloqueiaRetryFinanceiro() {
+        PointPaymentResponse unknown = currentResponse();
+        when(orderService.getOrderForReconciliation("order-a")).thenReturn(order);
+        when(persistenceService.markSubmissionStarted("order-a")).thenReturn(true);
+        when(mercadoPagoCobrancaService.createRemoteOrder("order-a"))
+                .thenThrow(new ExternalServiceException(
+                        "Mercado Pago", ExternalFailureType.TIMEOUT,
+                        "timeout", new java.net.SocketTimeoutException("timeout")));
+        when(persistenceService.markUnknown(
+                "order-a", "attempt-a", "submission_timeout")).thenReturn(unknown);
+
+        assertThat(service.submitSameAttempt("order-a", "TERMINAL_REQUEST")).isSameAs(unknown);
+
+        verify(persistenceService).markUnknown(
+                "order-a", "attempt-a", "submission_timeout");
+        verify(persistenceService, never()).markDefinitiveSubmissionFailure(
+                anyString(), anyString(), anyString());
     }
 
     private PointPaymentResponse currentResponse() {

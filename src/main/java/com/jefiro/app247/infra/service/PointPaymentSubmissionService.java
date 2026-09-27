@@ -4,6 +4,8 @@ import com.jefiro.app247.domain.model.Order;
 import com.jefiro.app247.domain.model.PaymentAttempt;
 import com.jefiro.app247.domain.model.dto.OrderResponse;
 import com.jefiro.app247.domain.model.dto.PointPaymentResponse;
+import com.jefiro.app247.infra.exception.ExternalFailureType;
+import com.jefiro.app247.infra.exception.ExternalServiceException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,10 +67,29 @@ public class PointPaymentSubmissionService {
             } catch (RuntimeException error) {
                 log.warn("[PAYMENT] resultado remoto desconhecido origin={} orderId={} attemptId={} errorType={}",
                         origin, orderId, attempt.getIdPagamento(), error.getClass().getSimpleName());
-                throw error;
+                if (isDefinitiveBeforeCreation(error)) {
+                    return persistenceService.markDefinitiveSubmissionFailure(
+                            orderId, attempt.getIdPagamento(), failureDetail(error));
+                }
+                return persistenceService.markUnknown(
+                        orderId, attempt.getIdPagamento(), failureDetail(error));
             }
         } finally {
             lock.unlock();
         }
+    }
+
+    private boolean isDefinitiveBeforeCreation(RuntimeException error) {
+        if (!(error instanceof ExternalServiceException external)) return false;
+        return external.getFailureType() == ExternalFailureType.AUTHENTICATION
+                || external.getFailureType() == ExternalFailureType.TERMINAL_NOT_FOUND
+                || external.getFailureType() == ExternalFailureType.INVALID_REQUEST;
+    }
+
+    private String failureDetail(RuntimeException error) {
+        if (error instanceof ExternalServiceException external) {
+            return "submission_" + external.getFailureType().name().toLowerCase(java.util.Locale.ROOT);
+        }
+        return "submission_result_unknown";
     }
 }

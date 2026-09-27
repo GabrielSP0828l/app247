@@ -268,6 +268,21 @@ class PagamentoServiceTest {
     }
 
     @Test
+    void aprovacaoConfirmadaVenceCorridaComCancelamentoLocal() throws Exception {
+        order.setStatus(OrderStatus.CANCELED);
+        pagamento.setStatus(PagamentoStatus.CANCELLING);
+
+        process("processed", "accredited", "credit_card", "visa", 1, true);
+
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PROCESSED);
+        assertThat(pagamento.getStatus()).isEqualTo(PagamentoStatus.PROCESSED);
+        assertThat(order.getCarrinho().getStatus()).isEqualTo(
+                com.jefiro.app247.domain.model.enum_type.CarrinhoStatus.PAID);
+        verify(eventPublisher, times(1)).publishEvent(any(
+                com.jefiro.app247.infra.event.OrderPaidEvent.class));
+    }
+
+    @Test
     void pollingSemVersaoIgnoraEventoPersistidoComAMesmaIdentidade() throws Exception {
         order.setStatus(OrderStatus.CREATED);
         String created = webhook("created", "created", null, null, null, false)

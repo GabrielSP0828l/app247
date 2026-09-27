@@ -20,6 +20,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpMethod;
 
 @Configuration
 @EnableWebSecurity
@@ -38,8 +39,11 @@ public class SecurityConfig {
                 ).authorizeHttpRequests(authorization -> authorization
                         .requestMatchers(
                                 "/mercado-pago/oauth/callback", "/mp/oauth/callback",
-                                "/produtos/sync", "/produtos/home", "/public/leads"
+                                "/produtos/sync", "/produtos/home", "/public/leads", "/public/app-config"
                         ).permitAll()
+                        .requestMatchers(HttpMethod.POST, "/auth/register", "/auth/login", "/auth/login/admin",
+                                "/auth/send-code", "/auth/validate-code").permitAll()
+                        .requestMatchers("/auth/**").denyAll()
                         .requestMatchers(
                                 "/admin/**", "/empresas/**", "/condominios/**", "/terminais/**",
                                 "/produtos/**", "/promocoes/**", "/estoque-empresa/**",
@@ -47,6 +51,7 @@ public class SecurityConfig {
                                 "/planogramas/**", "/mercado-pago/**",
                                 "/mp/oauth/mercadopago/**", "/mp/oauth/terminal/**"
                         ).hasAnyRole("ADMIN", "GERENTE")
+                        .requestMatchers("/app-cliente/**").hasRole("USER")
                         .anyRequest().permitAll()
                 )
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(

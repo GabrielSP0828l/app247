@@ -59,6 +59,8 @@ public class UserService {
     CondominioRepository condominioRepository;
     @Autowired
     EmpresaService empresaService;
+    @Autowired
+    CpfService cpfService;
 
     public User getUser(String user) {
         return repository.findById(user).orElseThrow(UserNotFoundException::new);
@@ -74,7 +76,7 @@ public class UserService {
         try {
             UsernamePasswordAuthenticationToken authenticationToken =
                     new UsernamePasswordAuthenticationToken(
-                            auth.cpf(),
+                            cpfService.requireValid(auth.cpf()),
                             auth.senha()
                     );
 
@@ -97,7 +99,7 @@ public class UserService {
 
     public AuthResponse loginAdmin(AuthDTO auth) {
         try {
-            UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(auth.cpf(), auth.senha());
+            UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(cpfService.requireValid(auth.cpf()), auth.senha());
 
             Authentication authentication = authenticationManager.authenticate(authenticationToken);
             User user = (User) authentication.getPrincipal();
@@ -125,7 +127,8 @@ public class UserService {
     }
 
     public void recoveryPassword(String cpf) {
-        repository.getByCpf(cpf).ifPresent(user -> {
+        String normalized = cpfService.requireValid(cpf);
+        repository.getByCpf(normalized).ifPresent(user -> {
             String code = String.valueOf(100000 + SECURE_RANDOM.nextInt(900000));
 
             ValidateCodeRequest passwordRecovery = new ValidateCodeRequest(code, user.getCpf(), user.getEmail(), user.getNome());
@@ -136,7 +139,7 @@ public class UserService {
             );
 
             redisTemplate.opsForValue().set(
-                    "recovery:" + cpf,
+                    "recovery:" + normalized,
                     passwordRecovery,
                     Duration.ofMinutes(15)
             );

@@ -34,9 +34,14 @@ public class PagamentoService {
     PointPaymentSubmissionService submissionService;
 
     public PointPaymentResponse gerarCobranca(String carrinho_id) {
+        return gerarCobranca(carrinho_id, null);
+    }
+
+    public PointPaymentResponse gerarCobranca(String carrinho_id, String terminalId) {
         log.info("[PAYMENT-BACKEND] iniciando tentativa cartId={}", carrinho_id);
         PointPaymentPersistenceService.PreparedAttempt attempt =
-                pointPaymentPersistenceService.prepare(carrinho_id);
+                terminalId == null ? pointPaymentPersistenceService.prepare(carrinho_id)
+                        : pointPaymentPersistenceService.prepare(carrinho_id, terminalId);
 
         log.info("[PAYMENT] tentativa resolvida origin=TERMINAL_REQUEST orderId={} attemptId={} remoteOrderId={} submitOwner={}",
                 attempt.orderId(), attempt.paymentAttemptId(), attempt.mercadoPagoOrderId(),

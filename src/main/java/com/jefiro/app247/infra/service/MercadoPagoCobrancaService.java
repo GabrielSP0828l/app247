@@ -47,6 +47,53 @@ public class MercadoPagoCobrancaService {
         return newOrder(orderService.getOrderForReconciliation(orderId));
     }
 
+    public OrderResponse cancelRemoteOrder(Order order) {
+        if (order == null || order.getPagamento() == null
+                || order.getMpOrderId() == null || order.getMpOrderId().isBlank()) {
+            throw new IllegalStateException("Order sem identidade remota para cancelamento");
+        }
+        PaymentAttempt attempt = order.getPagamento();
+        if (attempt.getCancellationIdempotencyKey() == null
+                || attempt.getCancellationIdempotencyKey().isBlank()) {
+            throw new IllegalStateException("Cancelamento sem chave idempotente persistida");
+        }
+        String empresaId = order.getEmpresa().getId();
+        Terminal terminal = terminalRepository
+                .findByIdTerminalAndCondominioEmpresaId(order.getIdTerminal(), empresaId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Terminal interno não pertence à empresa da order"));
+        MercadoPagoConta conta = configurationService.requireConfigured(terminal, empresaId);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(conta.getAccessToken());
+        headers.set("X-Idempotency-Key", attempt.getCancellationIdempotencyKey());
+        try {
+            ResponseEntity<OrderResponse> response = restTemplate.exchange(
+                    URL + "/" + order.getMpOrderId() + "/cancel",
+                    HttpMethod.POST, new HttpEntity<Void>(headers), OrderResponse.class);
+            OrderResponse body = response.getBody();
+            if (body == null || !order.getMpOrderId().equals(body.id())) {
+                throw new IllegalStateException("Cancelamento retornou outra Order Mercado Pago");
+            }
+            if (body.externalReference() == null
+                    || !attempt.getExternalReference().equals(body.externalReference())) {
+                throw new IllegalStateException("Cancelamento retornou external_reference divergente");
+            }
+            return body;
+        } catch (RestClientResponseException e) {
+            ExternalFailureType failureType = classify(e);
+            log.warn("Cancelamento Point não confirmado: orderId={}, httpStatus={}, failureType={}",
+                    order.getIdOrder(), e.getStatusCode().value(), failureType);
+            throw new ExternalServiceException("Mercado Pago", failureType,
+                    "Cancelamento recusado com HTTP " + e.getStatusCode().value(), e);
+        } catch (ResourceAccessException e) {
+            throw new ExternalServiceException("Mercado Pago", ExternalFailureType.TIMEOUT,
+                    "Timeout ao cancelar order", e);
+        } catch (RestClientException e) {
+            throw new ExternalServiceException("Mercado Pago", ExternalFailureType.UNAVAILABLE,
+                    "Falha de comunicação ao cancelar order", e);
+        }
+    }
+
     OrderResponse newOrder(Order order) {
         log.info("[PAYMENT-BACKEND] chamando Mercado Pago orderId={}", order.getIdOrder());
         if (order.getPagamento() == null) {
@@ -57,8 +104,14 @@ public class MercadoPagoCobrancaService {
         PaymentAttempt attempt = order.getPagamento();
         if (attempt.getIdPagamento() == null || attempt.getExternalReference() == null
                 || attempt.getExternalReference().isBlank() || attempt.getIdempotencyKey() == null
-                || attempt.getIdempotencyKey().isBlank()) {
+                || attempt.getIdempotencyKey().isBlank() || attempt.getValor() == null
+                || attempt.getValor().signum() <= 0) {
             throw new IllegalStateException("Tentativa de pagamento ainda não foi persistida");
+        }
+        if (order.getTotalCobrado() == null
+                || attempt.getValor().compareTo(order.getTotalCobrado()) != 0) {
+            throw new IllegalStateException(
+                    "Valor da tentativa diverge do total financeiro congelado da Order");
         }
         if (order.getEmpresa() == null) {
             throw new IllegalStateException("Order sem empresa");
@@ -83,8 +136,7 @@ public class MercadoPagoCobrancaService {
                 "Venda PDV",
                 new OrderRequest.TransactionsRequest(
                         List.of(new OrderRequest.PaymentRequest(
-                                MoneyPolicy.charged(order.getTotalCobrado() != null
-                                        ? order.getTotalCobrado() : order.getTotal()).toPlainString()))
+                                MoneyPolicy.charged(attempt.getValor()).toPlainString()))
                 ),
                 new OrderRequest.ConfigRequest(
                         new OrderRequest.PointRequest(terminal.getMercadoPagoTerminalId(), "no_ticket")

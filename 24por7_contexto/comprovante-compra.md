@@ -2,6 +2,15 @@
 
 Voltar para [[00-index]]. Contratos públicos em [[api]], venda/pagamento em [[mercado-pago]] e execução em [[arquitetura]].
 
+## Visualização pelo App Cliente
+
+`GET /app-cliente/compras/{orderId}/comprovante` valida ownership e aprovação e
+gera um PNG somente para visualização. Essa rota não chama FastAPI, n8n, WhatsApp ou
+e-mail. O envio é uma ação separada em
+`POST /app-cliente/compras/{orderId}/comprovante/envios`, que adapta a Order
+autenticada ao fluxo existente sem aceitar IDs de usuário, Empresa ou Terminal do
+Flutter.
+
 ## Responsabilidades
 
 ```text

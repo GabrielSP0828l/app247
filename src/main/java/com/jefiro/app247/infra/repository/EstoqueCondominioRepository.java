@@ -67,6 +67,13 @@ public interface EstoqueCondominioRepository extends JpaRepository<EstoqueCondom
     List<EstoqueCondominio> findCurrentCatalog(@Param("condominioId") String condominioId);
 
     @Query("select distinct e from EstoqueCondominio e join fetch e.produto p left join fetch p.codigosBarras " +
+           "where e.empresa.id=:empresaId and e.condominio.idCondominio=:condominioId " +
+           "and e.condominio.empresa.id=:empresaId and e.ativo=true and p.ativo=true and p.empresa.id=:empresaId " +
+           "order by p.codigoInterno")
+    List<EstoqueCondominio> findCurrentCatalogForTenant(@Param("empresaId") String empresaId,
+                                                        @Param("condominioId") String condominioId);
+
+    @Query("select distinct e from EstoqueCondominio e join fetch e.produto p left join fetch p.codigosBarras " +
            "where e.condominio.idCondominio=:condominioId and " +
            "((e.updatedAt>:lastSync and e.updatedAt<=:syncAt) or " +
            "(p.updatedAt>:lastSync and p.updatedAt<=:syncAt)) " +

@@ -1,11 +1,11 @@
 package com.jefiro.app247.domain.model;
 
 import com.jefiro.app247.domain.model.auth.User;
+import com.jefiro.app247.domain.model.appclient.CustomerCoupon;
 import com.jefiro.app247.domain.model.enum_type.OriginRequest;
 import com.jefiro.app247.domain.model.enum_type.order.OrderStatus;
 import com.jefiro.app247.domain.model.enum_type.order.StatusDetail;
 import com.jefiro.app247.domain.model.terminal.Terminal;
-import com.jefiro.app247.infra.service.MoneyPolicy;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -42,6 +42,9 @@ public class Order {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
     private User user;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "customer_identity_id")
+    private CustomerIdentity customerIdentity;
     @OneToMany(mappedBy = "order", fetch = FetchType.LAZY, cascade = CascadeType.PERSIST)
     @OrderBy("createdAt ASC")
     private List<OrderItem> items = new ArrayList<>();
@@ -50,12 +53,23 @@ public class Order {
     private List<PaymentAttempt> paymentAttempts = new ArrayList<>();
     @Column(nullable = false, precision = 15, scale = 6)
     private BigDecimal subtotal;
+    @Column(name = "subtotal_pos_promocoes", nullable = false, precision = 15, scale = 6)
+    private BigDecimal subtotalPosPromocoes;
+    @Column(name = "desconto_promocoes", nullable = false, precision = 15, scale = 6)
+    private BigDecimal descontoPromocoes;
+    @Column(name = "desconto_cupom", nullable = false, precision = 15, scale = 6)
+    private BigDecimal descontoCupom;
     @Column(nullable = false, precision = 15, scale = 6)
     private BigDecimal desconto;
     @Column(name = "total_calculado", nullable = false, precision = 15, scale = 6)
     private BigDecimal totalCalculado;
     @Column(name = "total_cobrado", nullable = false, precision = 15, scale = 6)
     private BigDecimal totalCobrado;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "coupon_id")
+    private CustomerCoupon coupon;
+    @Column(name = "price_finalized_at")
+    private Instant priceFinalizedAt;
     @Enumerated(EnumType.STRING)
     @Column(name = "origin_request", nullable = false, length = 30)
     private OriginRequest originRequest;
@@ -79,8 +93,8 @@ public class Order {
         empresa = carrinho.getEmpresa();
         condominio = carrinho.getCondominio();
         terminal = carrinho.getTerminal();
+        customerIdentity = carrinho.getCustomerIdentity();
         originRequest = OriginRequest.TERMINAL;
-        atualizarTotaisDoCarrinho();
         snapshotItens();
     }
 
@@ -92,14 +106,6 @@ public class Order {
     public void snapshotItens() {
         if (carrinho == null || carrinho.getItems() == null || !items.isEmpty()) return;
         for (CartItem item : carrinho.getItems()) items.add(OrderItem.snapshot(this, item));
-    }
-
-    public void atualizarTotaisDoCarrinho() {
-        if (carrinho == null) return;
-        subtotal = MoneyPolicy.persistence(carrinho.getItems().stream().map(i -> i.getOriginalPrice().multiply(i.getQuantity())).reduce(BigDecimal.ZERO, BigDecimal::add));
-        totalCalculado = MoneyPolicy.persistence(carrinho.getSubtotal());
-        totalCobrado = MoneyPolicy.chargedForPersistence(totalCalculado);
-        desconto = MoneyPolicy.persistence(subtotal.subtract(totalCalculado));
     }
 
     public BigDecimal getTotal() {
@@ -120,6 +126,10 @@ public class Order {
 
     public PaymentAttempt getPagamento() {
         return paymentAttempts == null ? null : paymentAttempts.stream().max(Comparator.comparing(PaymentAttempt::getAttemptNumber, Comparator.nullsFirst(Integer::compareTo))).orElse(null);
+    }
+
+    public boolean isPriceFinalized() {
+        return priceFinalizedAt != null;
     }
 
     public void setPagamento(PaymentAttempt attempt) {
@@ -211,11 +221,31 @@ public class Order {
         if (createdAt == null) createdAt = now;
         updatedAt = now;
         if (status == null) status = OrderStatus.PENDING;
+        initializeLegacyFinancialSnapshot();
         snapshotItens();
     }
 
     @PreUpdate
     void preUpdate() {
         updatedAt = Instant.now();
+    }
+
+    /**
+     * Compatibilidade de persistência para compras históricas criadas antes do
+     * snapshot P1-C. Elas continuam sem {@code priceFinalizedAt} e, portanto,
+     * jamais ficam aptas a uma nova cobrança sem passar pelo finalizador.
+     */
+    private void initializeLegacyFinancialSnapshot() {
+        if (subtotalPosPromocoes != null && descontoPromocoes != null
+                && descontoCupom != null) return;
+        if (subtotal == null || totalCalculado == null || totalCobrado == null) return;
+        subtotal = com.jefiro.app247.infra.service.MoneyPolicy.persistence(subtotal);
+        totalCalculado = com.jefiro.app247.infra.service.MoneyPolicy.persistence(totalCalculado);
+        totalCobrado = com.jefiro.app247.infra.service.MoneyPolicy.chargedForPersistence(totalCalculado);
+        subtotalPosPromocoes = totalCalculado;
+        descontoPromocoes = com.jefiro.app247.infra.service.MoneyPolicy.persistence(
+                subtotal.subtract(subtotalPosPromocoes));
+        descontoCupom = com.jefiro.app247.infra.service.MoneyPolicy.persistence(BigDecimal.ZERO);
+        desconto = com.jefiro.app247.infra.service.MoneyPolicy.persistence(descontoPromocoes);
     }
 }

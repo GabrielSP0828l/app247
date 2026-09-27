@@ -72,12 +72,31 @@ class MercadoPagoCobrancaServiceTest {
         order.setIdOrder("order-a");
         order.setEmpresa(Empresa.builder().id("empresa-a").build());
         order.setIdTerminal("terminal-b");
+        order.setTotal(new BigDecimal("25.00"));
         order.setPagamento(attempt(order));
         when(terminalRepository.findByIdTerminalAndCondominioEmpresaId("terminal-b", "empresa-a"))
                 .thenReturn(Optional.empty());
 
         assertThrows(IllegalStateException.class, () -> service().newOrder(order));
         verifyNoInteractions(oauthService, restTemplate);
+    }
+
+    @Test
+    void rejeitaDivergenciaEntreAttemptEPrecoCongeladoAntesDoPostRemoto() {
+        Order order = new Order();
+        order.setIdOrder("order-a");
+        order.setEmpresa(Empresa.builder().id("empresa-a").build());
+        order.setIdTerminal("terminal-a");
+        order.setTotal(new BigDecimal("25.00"));
+        PaymentAttempt attempt = attempt(order);
+        attempt.setValor(new BigDecimal("24.00"));
+        order.setPagamento(attempt);
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class, () -> service().newOrder(order));
+
+        assertTrue(exception.getMessage().contains("diverge"));
+        verifyNoInteractions(terminalRepository, configurationService, restTemplate);
     }
 
     @Test
@@ -211,6 +230,40 @@ class MercadoPagoCobrancaServiceTest {
 
         assertEquals(ExternalFailureType.ACTIVE_CHARGE, exception.getFailureType());
         assertFalse(exception.getMessage().contains("already_queued_order_for_terminal"));
+    }
+
+    @Test
+    void cancelamentoUsaOrderRemotaEChaveIdempotentePersistida() throws Exception {
+        Empresa empresa = Empresa.builder().id("empresa-a").build();
+        Order order = new Order();
+        order.setIdOrder("order-a");
+        order.setEmpresa(empresa);
+        order.setIdTerminal("terminal-a");
+        PaymentAttempt attempt = attempt(order);
+        attempt.setProviderOrderId("mp-order-a");
+        attempt.setCancellationIdempotencyKey("cancel-key-a");
+        order.setPagamento(attempt);
+        Terminal terminal = new Terminal();
+        terminal.setMercadoPagoTerminalId("POINT-A");
+        when(terminalRepository.findByIdTerminalAndCondominioEmpresaId("terminal-a", "empresa-a"))
+                .thenReturn(Optional.of(terminal));
+        when(configurationService.requireConfigured(terminal, "empresa-a"))
+                .thenReturn(MercadoPagoConta.builder().accessToken("token-a").build());
+        var response = new ObjectMapper().readValue("""
+                {"id":"mp-order-a","external_reference":"attempt-order-a",
+                 "status":"canceled","status_detail":"canceled"}
+                """, com.jefiro.app247.domain.model.dto.OrderResponse.class);
+        ArgumentCaptor<HttpEntity<Void>> entity = ArgumentCaptor.forClass(HttpEntity.class);
+        when(restTemplate.exchange(eq("https://api.mercadopago.com/v1/orders/mp-order-a/cancel"),
+                eq(HttpMethod.POST), entity.capture(),
+                eq(com.jefiro.app247.domain.model.dto.OrderResponse.class)))
+                .thenReturn(ResponseEntity.ok(response));
+
+        var returned = service().cancelRemoteOrder(order);
+
+        assertEquals("canceled", returned.status());
+        assertEquals("cancel-key-a", entity.getValue().getHeaders().getFirst("X-Idempotency-Key"));
+        assertEquals("Bearer token-a", entity.getValue().getHeaders().getFirst(HttpHeaders.AUTHORIZATION));
     }
 
     private MercadoPagoCobrancaService service() {
