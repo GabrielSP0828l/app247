@@ -38,6 +38,7 @@ Esta base descreve o backend conforme o código presente no repositório. O cód
 - [[inventario]] — contagem física, modo cego, conflitos, idempotência e ajustes no ledger.
 - [[importacao-produtos]] — modelo XLSX, validação/preview, job assíncrono e estoque inicial.
 - [[autenticacao]] — Spring Security, JWT, papéis, recuperação de senha e contexto de empresa.
+- [[terminal-python]] — distribuição do cliente, layout imutável e fronteira com o backend.
 - [[websocket]] — endpoints WebSocket nativos, STOMP e eventos de pagamento.
 - [[terminal-lifecycle]] — estados duráveis, descoberta offline e factory reset da aplicação.
 - [[sincronizacao-produtos]] — invalidação WebSocket e sync full/incremental do catálogo por Terminal.
