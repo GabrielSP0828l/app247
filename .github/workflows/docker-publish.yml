@@ -6,7 +6,26 @@ on:
       - master
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # O runner possui Docker; os testes Testcontainers (MySQL 8.4) executam aqui.
+      - name: Testes
+        run: ./mvnw --batch-mode --no-transfer-progress test
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     environment: DOCKERHUB_USERNAME
 
