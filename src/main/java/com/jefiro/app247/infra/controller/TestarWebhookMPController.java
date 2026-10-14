@@ -4,12 +4,15 @@ import com.jefiro.app247.infra.service.TestarWebhookMP;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Profile;
 
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/testes/mercadopago")
-@ConditionalOnProperty(name = "app.test-endpoints.enabled", havingValue = "true", matchIfMissing = true)
+// Simuladores com chamadas reais ao Mercado Pago: opt-in explícito e nunca no profile prod.
+@Profile("!prod")
+@ConditionalOnProperty(name = "app.test-endpoints.enabled", havingValue = "true", matchIfMissing = false)
 public class TestarWebhookMPController {
 
     private final TestarWebhookMP testarWebhookMP;
