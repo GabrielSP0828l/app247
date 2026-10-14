@@ -93,6 +93,7 @@ public class Order {
         empresa = carrinho.getEmpresa();
         condominio = carrinho.getCondominio();
         terminal = carrinho.getTerminal();
+        user = carrinho.getUser();
         customerIdentity = carrinho.getCustomerIdentity();
         originRequest = OriginRequest.TERMINAL;
         snapshotItens();

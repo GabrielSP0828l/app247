@@ -35,6 +35,10 @@ public class Terminal {
     @Column(name = "reset_started_at") private Instant resetStartedAt;
     @Column(name = "reset_completed_at") private Instant resetCompletedAt;
     @Column(name = "reset_reason", length = 80) private String resetReason;
+    @Column(name = "device_credential_hash", unique = true, length = 64) private String deviceCredentialHash;
+    @Column(name = "device_credential_version") private Integer deviceCredentialVersion;
+    @Column(name = "device_credential_created_at") private Instant deviceCredentialCreatedAt;
+    @Column(name = "device_credential_revoked_at") private Instant deviceCredentialRevokedAt;
     @Column(name = "created_at", nullable = false) private Instant create_at;
     @Column(name = "updated_at", nullable = false) private Instant update_at;
 

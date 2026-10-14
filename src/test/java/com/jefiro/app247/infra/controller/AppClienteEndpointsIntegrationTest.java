@@ -1,5 +1,6 @@
 package com.jefiro.app247.infra.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jefiro.app247.domain.model.*;
 import com.jefiro.app247.domain.model.appclient.CustomerCoupon;
 import com.jefiro.app247.domain.model.appclient.AppClienteConfig;
@@ -35,6 +36,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -72,6 +76,8 @@ class AppClienteEndpointsIntegrationTest {
     @Autowired RewardRepository rewards;
     @Autowired CustomerCouponRepository coupons;
     @Autowired AppClienteConfigRepository appConfigs;
+    @Autowired CustomerIdentificationTokenRepository identificationTokens;
+    @Autowired ObjectMapper objectMapper;
 
     @MockitoBean StringRedisTemplate redis;
     @MockitoBean RedisTemplate<String, Object> redisTemplate;
@@ -202,7 +208,7 @@ class AppClienteEndpointsIntegrationTest {
         for (MockHttpServletRequestBuilder request : originalFifteenRequests()) {
             int current = ++number;
             tests.add(DynamicTest.dynamicTest("rota anônima " + current,
-                    () -> mvc.perform(request).andExpect(status().isForbidden())));
+                    () -> mvc.perform(request).andExpect(status().isUnauthorized())));
         }
         return tests;
     }
@@ -265,6 +271,28 @@ class AppClienteEndpointsIntegrationTest {
     @Test
     void appClienteServicePrincipalEhBeanReal() {
         assertThat(appClienteService.getClass().getName()).doesNotContain("MockitoMock");
+    }
+
+    @Test
+    void identificationQrIsOpaqueHasTtlAndOnlyHashIsPersisted() throws Exception {
+        String json=mvc.perform(post("/app-cliente/identificacao-tokens")
+                        .header(HttpHeaders.AUTHORIZATION,authorization))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.qrPayload").value(org.hamcrest.Matchers.startsWith("app247://customer-link/")))
+                .andExpect(jsonPath("$.token").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+        var node=objectMapper.readTree(json);
+        String payload=node.get("qrPayload").asText();
+        String opaque=payload.substring("app247://customer-link/".length());
+        assertThat(opaque).hasSize(43).doesNotContain("@", ".");
+        String hash=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(opaque.getBytes(StandardCharsets.US_ASCII)));
+        var persisted=identificationTokens.findAll().stream()
+                .filter(value->hash.equals(value.getTokenHash())).findFirst().orElseThrow();
+        assertThat(persisted.getTokenHash()).hasSize(64).isNotEqualTo(opaque);
+        assertThat(persisted.getExpiresAt()).isAfter(Instant.now().plusSeconds(90));
+        assertThat(persisted.getExpiresAt()).isBefore(Instant.now().plusSeconds(130));
+        assertThat(json).doesNotContain("userId","cpf","empresaId","condominioId","JWT");
     }
 
     private List<MockHttpServletRequestBuilder> originalFifteenRequests() {

@@ -31,13 +31,26 @@ public class OrderController {
     TerminalRequestAuthorizationService terminalAuthorization;
 
     @GetMapping("/finalizar")
-    public ResponseEntity<?> order(@RequestParam String carrinho_id) {
+    @Operation(summary = "Finaliza o carrinho do Terminal autenticado",
+            description = "Rota legada; o carrinho persistido determina Terminal, Empresa e Condomínio.",
+            security = @SecurityRequirement(name = "terminalToken"))
+    public ResponseEntity<?> order(@RequestParam String carrinho_id,
+                                   @RequestHeader(value = "X-Terminal-Token", required = false) String credential) {
+        var cart = service.getCartForAuthorization(carrinho_id);
+        var terminal = terminalAuthorization.authorize(credential, cart.getIdTerminal());
+        terminalAuthorization.requireCartOwnership(terminal, cart);
         return ResponseEntity.ok(new OrderDetailResponse(service.createOrder(carrinho_id, null)));
     }
 
     @GetMapping()
-    public ResponseEntity<?> getOrder(@RequestParam String carrinho_id) {
-        return ResponseEntity.ok(new OrderDetailResponse(service.getOrder(carrinho_id)));
+    @Operation(summary = "Consulta a Order do carrinho pertencente ao Terminal autenticado",
+            security = @SecurityRequirement(name = "terminalToken"))
+    public ResponseEntity<?> getOrder(@RequestParam String carrinho_id,
+                                      @RequestHeader(value = "X-Terminal-Token", required = false) String credential) {
+        var order = service.getOrder(carrinho_id);
+        var terminal = terminalAuthorization.authorize(credential, order.getIdTerminal());
+        terminalAuthorization.requireOrderOwnership(terminal, order);
+        return ResponseEntity.ok(new OrderDetailResponse(order));
     }
 
     @GetMapping("/{orderId}/status")

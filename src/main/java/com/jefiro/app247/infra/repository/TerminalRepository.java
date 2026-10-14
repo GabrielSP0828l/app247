@@ -19,6 +19,13 @@ public interface TerminalRepository extends JpaRepository<Terminal, String> {
     @Query("select t from terminal t where t.idTerminal = :id")
     Optional<Terminal> findByIdWithTenant(@Param("id") String id);
 
+    @EntityGraph(attributePaths = {"condominio", "condominio.empresa"})
+    Optional<Terminal> findByDeviceCredentialHash(String deviceCredentialHash);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from terminal t join fetch t.condominio c join fetch c.empresa where t.idTerminal = :id")
+    Optional<Terminal> findByIdForCredentialUpdate(@Param("id") String id);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from terminal t where t.idTerminal = :id")
     Optional<Terminal> findByIdForTelemetryUpdate(@Param("id") String id);

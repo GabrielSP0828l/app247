@@ -97,7 +97,8 @@ public class PagamentoService {
                     payment != null && payment.paymentMethod() != null ? payment.paymentMethod().installments() : null,
                     response.id(),
                     response.version(),
-                    response.lastUpdatedDate()
+                    response.lastUpdatedDate(),
+                    null
             );
         }
 
@@ -116,7 +117,8 @@ public class PagamentoService {
                 payment != null && payment.paymentMethod() != null ? payment.paymentMethod().installments() : null,
                 webhookData.id(),
                 webhookData.version(),
-                notification.dateCreated()
+                notification.dateCreated(),
+                null
         );
     }
 

@@ -8,6 +8,12 @@ import com.jefiro.app247.infra.service.admin.AdminOnboardingService;
 import com.jefiro.app247.infra.service.admin.AdminPaymentQueryService;
 import com.jefiro.app247.infra.service.admin.AdminSalesQueryService;
 import com.jefiro.app247.infra.service.admin.AdminTerminalQueryService;
+import com.jefiro.app247.infra.service.PointPaymentRefundService;
+import com.jefiro.app247.domain.model.dto.admin.AdminRefundResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -16,6 +22,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 
 import java.time.LocalDate;
 
@@ -36,6 +44,8 @@ public class AdminController {
     private AdminSalesQueryService salesService;
     @Autowired
     private AdminActivityQueryService activityService;
+    @Autowired
+    private PointPaymentRefundService refundService;
 
     @GetMapping("/dashboard")
     public ResponseEntity<?> dashboard() {
@@ -79,6 +89,22 @@ public class AdminController {
             Pageable pageable) {
         return ResponseEntity.ok(paymentService.list(
                 from, to, status, provider, terminalId, orderId, pageable));
+    }
+
+    @PostMapping("/orders/{orderId}/refund")
+    @Operation(summary = "Solicita reembolso integral de uma Order Point aprovada",
+            description = "Operação tenant-aware e idempotente. Persiste a intenção antes de chamar POST /v1/orders/{id}/refund com body vazio.",
+            security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Reembolso confirmado ou já confirmado"),
+            @ApiResponse(responseCode = "401", description = "JWT ausente ou inválido"),
+            @ApiResponse(responseCode = "403", description = "Usuário sem papel ADMIN/GERENTE"),
+            @ApiResponse(responseCode = "404", description = "PURCHASE_NOT_FOUND"),
+            @ApiResponse(responseCode = "409", description = "REFUND_NOT_ALLOWED ou REFUND_REMOTE_ORDER_MISSING"),
+            @ApiResponse(responseCode = "502", description = "Provedor não confirmou; intenção permanece para reconciliação")
+    })
+    public ResponseEntity<AdminRefundResponse> refund(@PathVariable String orderId) {
+        return ResponseEntity.ok(refundService.refund(orderId));
     }
 
     @GetMapping("/sales/summary")

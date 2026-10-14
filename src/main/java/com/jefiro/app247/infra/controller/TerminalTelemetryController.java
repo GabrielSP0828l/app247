@@ -3,6 +3,7 @@ package com.jefiro.app247.infra.controller;
 import com.jefiro.app247.domain.model.dto.*;
 import com.jefiro.app247.domain.model.enum_type.TerminalOperationalStatus;
 import com.jefiro.app247.infra.service.TerminalTelemetryService;
+import com.jefiro.app247.infra.service.TerminalRequestAuthorizationService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,6 +15,8 @@ import java.util.Map;
 @RestController
 public class TerminalTelemetryController {
     private final TerminalTelemetryService service;
+    @org.springframework.beans.factory.annotation.Autowired
+    private TerminalRequestAuthorizationService terminalAuthorization;
     public TerminalTelemetryController(TerminalTelemetryService service) { this.service = service; }
 
     @GetMapping("/terminal/health")
@@ -21,7 +24,9 @@ public class TerminalTelemetryController {
 
     @PostMapping("/terminal/telemetry")
     public ResponseEntity<TerminalTelemetryResponse> receive(
+            @RequestHeader(value = "X-Terminal-Token", required = false) String credential,
             @RequestBody @Valid TerminalTelemetryRequest request) {
+        terminalAuthorization.authorize(credential, request.terminalUuid());
         return ResponseEntity.accepted().body(service.receive(request));
     }
 

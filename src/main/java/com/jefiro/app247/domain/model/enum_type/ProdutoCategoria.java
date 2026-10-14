@@ -26,5 +26,6 @@ public enum ProdutoCategoria {
     INFANTIL,
     ELETRONICOS,
     PAPELARIA,
-    DESCARTAVEIS, OUTROS
+    DESCARTAVEIS,
+    OUTROS
 }

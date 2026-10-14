@@ -238,6 +238,10 @@ public class ProdutoService {
 
     }
 
+    public List<Produto> findTop10ByEmpresaId(String empresaId) {
+        return produtoRepository.findTop10ByEmpresaIdOrderByCreatedAtDesc(empresaId);
+    }
+
     private void publicar(String produtoId, ProdutoCatalogChangeReason motivo, Set<String> condominios) {
         eventPublisher.publishEvent(new ProdutoCatalogChangedEvent(produtoId, motivo, condominios));
     }

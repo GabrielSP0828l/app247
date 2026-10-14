@@ -8,6 +8,7 @@ import com.jefiro.app247.domain.model.dto.ProdutoSyncResponse;
 import com.jefiro.app247.domain.model.dto.response.PageResponse;
 import com.jefiro.app247.infra.service.ProdutoService;
 import com.jefiro.app247.infra.service.ProdutoSyncService;
+import com.jefiro.app247.infra.service.TerminalRequestAuthorizationService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -31,6 +32,8 @@ public class ProdutoController {
     private ProdutoService produtoService;
     @Autowired
     private ProdutoSyncService produtoSyncService;
+    @Autowired
+    private TerminalRequestAuthorizationService terminalAuthorization;
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ProdutoResponse> salvar(
@@ -118,15 +121,21 @@ public class ProdutoController {
 
     @GetMapping("/sync")
     public ProdutoSyncResponse sync(
+            @RequestHeader(value = "X-Terminal-Token", required = false) String credential,
             @RequestParam String uuidTerminal,
             @RequestParam(required = false) Instant lastSync) {
+        terminalAuthorization.authorize(credential, uuidTerminal);
         return produtoSyncService.sincronizar(uuidTerminal, Optional.ofNullable(lastSync));
     }
 
     @GetMapping("/home")
-    public ResponseEntity<?> produtosHome() {
+    public ResponseEntity<?> produtosHome(
+            @RequestHeader(value = "X-Terminal-Token", required = false) String credential,
+            @RequestHeader(value = "X-Terminal-Id", required = false) String terminalId) {
 
-        var destaques = produtoService.findTop10ByOrderByCreatedAtDesc();
+        var terminal = terminalAuthorization.authorize(credential, terminalId);
+        var destaques = produtoService.findTop10ByEmpresaId(
+                terminal.getCondominio().getEmpresa().getId());
 
         return ResponseEntity.ok(Map.of(
                 "destaques", destaques.stream().map(ProdutoResponse::new).toList()

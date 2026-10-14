@@ -210,7 +210,7 @@ class TenantLinkClaimIntegrationTest {
         mvc.perform(post("/app-cliente/tenant-link")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"token\":\"token-inexistente\"}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         mvc.perform(post("/admin/app-cliente/tenant-invitations")
                         .header(HttpHeaders.AUTHORIZATION, bearer(client))

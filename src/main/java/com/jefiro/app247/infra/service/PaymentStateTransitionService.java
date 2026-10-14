@@ -134,6 +134,8 @@ public class PaymentStateTransitionService {
                 if (stateChanged) domainEvent = new OrderNotCompletedEvent(order, false);
             }
             case REFUNDED -> {
+                pagamento.setRefundConfirmedAt(Instant.now());
+                if (data.refundId() != null) pagamento.setProviderRefundId(data.refundId());
                 if (appliesToOrder) markCartCanceled(order);
                 if (stateChanged) domainEvent = new OrderNotCompletedEvent(order, true);
             }

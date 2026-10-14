@@ -39,4 +39,43 @@ public class LoyaltyAccrualService {
         }
         movements.save(movement);
     }
+
+    /**
+     * Reverte exatamente o benefício originado pela compra. Se o cliente já
+     * consumiu o saldo, a conta pode ficar negativa; créditos futuros quitam
+     * primeiro essa dívida, impedindo benefício indevido após o reembolso.
+     */
+    @Transactional
+    public void reverseRefund(Order order) {
+        if (order == null || order.getStatus() != OrderStatus.REFUNDED
+                || order.getUser() == null) return;
+        String purchaseKey = "purchase:" + order.getIdOrder();
+        LoyaltyMovement purchase = movements.findByIdempotencyKey(purchaseKey).orElse(null);
+        if (purchase == null) return;
+        LoyaltyAccount account = accounts.findForUpdate(
+                order.getUser().getIdUser(), order.getEmpresa().getId()).orElse(null);
+        if (account == null) return;
+        String reversalKey = "refund:" + order.getIdOrder();
+        if (movements.existsByIdempotencyKey(reversalKey)) return;
+
+        LoyaltyMovement reversal = new LoyaltyMovement();
+        reversal.setEmpresa(order.getEmpresa());
+        reversal.setAccount(account);
+        reversal.setOrder(order);
+        reversal.setType("REFUND_REVERSAL");
+        reversal.setDescription("Estorno do benefício da compra " + order.getIdOrder());
+        reversal.setIdempotencyKey(reversalKey);
+        if (purchase.getPointsDelta() != null) {
+            long delta = -purchase.getPointsDelta();
+            account.setPointsBalance(account.getPointsBalance() + delta);
+            reversal.setPointsDelta(delta);
+        }
+        if (purchase.getCashbackDelta() != null) {
+            BigDecimal delta = purchase.getCashbackDelta().negate();
+            account.setCashbackBalance(MoneyPolicy.persistence(
+                    account.getCashbackBalance().add(delta)));
+            reversal.setCashbackDelta(MoneyPolicy.persistence(delta));
+        }
+        movements.save(reversal);
+    }
 }

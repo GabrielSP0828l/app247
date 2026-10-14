@@ -96,6 +96,14 @@ public class PaymentAttempt {
     private Instant cancellationRequestedAt;
     @Column(name = "cancellation_idempotency_key", length = 120)
     private String cancellationIdempotencyKey;
+    @Column(name = "refund_requested_at")
+    private Instant refundRequestedAt;
+    @Column(name = "refund_idempotency_key", length = 120)
+    private String refundIdempotencyKey;
+    @Column(name = "refund_confirmed_at")
+    private Instant refundConfirmedAt;
+    @Column(name = "provider_refund_id", length = 120)
+    private String providerRefundId;
 
     public PaymentAttempt(Order order) {
         this.order = order;

@@ -109,6 +109,7 @@ public class TerminalLifecycleService {
             terminal.setMercadoPagoTerminalId(null);
             terminal.setLastPing(null);
             terminal.setStatus(TerminalStatus.OFFLINE);
+            terminal.setDeviceCredentialRevokedAt(Instant.now());
             terminalRepository.save(terminal);
             auditLogService.record(terminal.getCondominio().getEmpresa(),
                     "TERMINAL_FACTORY_RESET_COMPLETED", "Terminal", terminalId,

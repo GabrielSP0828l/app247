@@ -15,6 +15,8 @@ import java.time.Instant;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import com.jefiro.app247.infra.security.AuthenticatedTerminal;
+import com.jefiro.app247.infra.service.TerminalRequestAuthorizationService;
 
 class PaymentWebSocketHandlerTest {
     @Test
@@ -23,6 +25,7 @@ class PaymentWebSocketHandlerTest {
         var field = PaymentWebSocketHandler.class.getDeclaredField("objectMapper");
         field.setAccessible(true);
         field.set(handler, new ObjectMapper().findAndRegisterModules());
+        authorization(handler);
         WebSocketSession correto = session("terminal-a", true);
         WebSocketSession outro = session("terminal-b", true);
         handler.afterConnectionEstablished(correto);
@@ -43,6 +46,7 @@ class PaymentWebSocketHandlerTest {
         var field = PaymentWebSocketHandler.class.getDeclaredField("objectMapper");
         field.setAccessible(true);
         field.set(handler, new ObjectMapper().findAndRegisterModules());
+        authorization(handler);
 
         handler.sendToTerminal(event("terminal-offline"));
     }
@@ -53,6 +57,7 @@ class PaymentWebSocketHandlerTest {
         var field = PaymentWebSocketHandler.class.getDeclaredField("objectMapper");
         field.setAccessible(true);
         field.set(handler, new ObjectMapper().findAndRegisterModules());
+        authorization(handler);
         WebSocketSession terminal = session("terminal-a", true);
         handler.afterConnectionEstablished(terminal);
 
@@ -70,8 +75,19 @@ class PaymentWebSocketHandlerTest {
     private WebSocketSession session(String terminalId, boolean open) {
         WebSocketSession session = mock(WebSocketSession.class);
         when(session.getUri()).thenReturn(URI.create("ws://localhost/payment-socket/" + terminalId));
+        when(session.getPrincipal()).thenReturn(
+                new AuthenticatedTerminal(terminalId, "empresa", "condominio", 1));
         when(session.isOpen()).thenReturn(open);
         return session;
+    }
+
+    private void authorization(PaymentWebSocketHandler handler) throws Exception {
+        var field = PaymentWebSocketHandler.class.getDeclaredField("authorization");
+        field.setAccessible(true);
+        TerminalRequestAuthorizationService authorization = mock(TerminalRequestAuthorizationService.class);
+        when(authorization.revalidate(any())).thenAnswer(call -> call.getArgument(0));
+        when(authorization.revalidateLifecycle(any())).thenAnswer(call -> call.getArgument(0));
+        field.set(handler, authorization);
     }
 
     private PaymentEvent event(String terminalId) {

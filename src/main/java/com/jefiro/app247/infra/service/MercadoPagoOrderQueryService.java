@@ -8,15 +8,17 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.client.RestClientException;
 
 @Service
 public class MercadoPagoOrderQueryService {
 
-    private static final String ORDERS_URL = "https://api.mercadopago.com/v1/orders/";
-
+    private static final String DEFAULT_API_BASE_URL = "https://api.mercadopago.com";
     private final RestTemplate restTemplate;
+    @Value("${mercado-pago.api-base-url:https://api.mercadopago.com}")
+    private String apiBaseUrl;
     @Autowired
     private OauthMercadoPagoService oauthMercadoPagoService;
 
@@ -56,7 +58,7 @@ public class MercadoPagoOrderQueryService {
 
         try {
             OrderResponse response = restTemplate.exchange(
-                    ORDERS_URL + mercadoPagoOrderId,
+                    ordersUrl() + "/" + mercadoPagoOrderId,
                     HttpMethod.GET,
                     new HttpEntity<Void>(headers),
                     OrderResponse.class
@@ -69,5 +71,11 @@ public class MercadoPagoOrderQueryService {
             throw new ExternalServiceException("Mercado Pago",
                     "Falha ao consultar order", e);
         }
+    }
+
+    private String ordersUrl() {
+        String baseUrl = apiBaseUrl == null || apiBaseUrl.isBlank()
+                ? DEFAULT_API_BASE_URL : apiBaseUrl;
+        return baseUrl.replaceAll("/+$", "") + "/v1/orders";
     }
 }

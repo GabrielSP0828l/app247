@@ -17,6 +17,10 @@ public record CarrinhoResponseDTO(
 
         BigDecimal subtotal,
 
+        boolean customerLinked,
+
+        String customerDisplayName,
+
         List<ItemResponseDTO> items,
 
         Instant createdAt,
@@ -25,6 +29,8 @@ public record CarrinhoResponseDTO(
 
 ) {
     public CarrinhoResponseDTO(Carrinho car) {
-        this(car.getIdCarrinho(), car.getIdTerminal(), car.getStatus(), car.getSubtotal(), car.getItems().stream().map(ItemResponseDTO::new).toList(), car.getCreatedAt(), car.getUpdatedAt());
+        this(car.getIdCarrinho(), car.getIdTerminal(), car.getStatus(), car.getSubtotal(),
+                car.getUser()!=null,car.getUser()!=null?car.getUser().getNome():null,
+                car.getItems().stream().map(ItemResponseDTO::new).toList(), car.getCreatedAt(), car.getUpdatedAt());
     }
 }

@@ -126,7 +126,7 @@ class AdminAppClienteManagementIntegrationTest {
             mvc.perform(get("/admin/app-cliente/config").header(HttpHeaders.AUTHORIZATION, bearer(restricted)))
                     .andExpect(status().isForbidden());
         }
-        mvc.perform(get("/admin/app-cliente/config")).andExpect(status().isForbidden());
+        mvc.perform(get("/admin/app-cliente/config")).andExpect(status().isUnauthorized());
         assertThat(managementService.getClass().getName()).doesNotContain("MockitoMock");
     }
 

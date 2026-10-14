@@ -23,10 +23,19 @@ public class CustomerIdentityHashService {
     }
 
     public String hashCpf(String normalizedCpf) {
+        return hmac(normalizedCpf);
+    }
+
+    public String hash(String purpose, String value) {
+        return hmac(purpose + "\0" + value);
+    }
+
+    private String hmac(String value) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-            return HexFormat.of().formatHex(mac.doFinal(normalizedCpf.getBytes(StandardCharsets.UTF_8)));
+            return HexFormat.of().formatHex(mac.doFinal(
+                    value.getBytes(StandardCharsets.UTF_8)));
         } catch (Exception exception) {
             throw new IllegalStateException("HMAC-SHA256 indisponível", exception);
         }

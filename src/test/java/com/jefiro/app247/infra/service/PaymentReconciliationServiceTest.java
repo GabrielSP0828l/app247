@@ -46,6 +46,7 @@ class PaymentReconciliationServiceTest {
         service = new PaymentReconciliationService();
         service.orderService = orderService;
         service.orderRepository = orderRepository;
+        service.pagamentoRepository = pagamentoRepository;
         service.mercadoPagoOrderQueryService = queryService;
         service.transitionService = transitionService;
         service.submissionService = submissionService;

@@ -28,6 +28,8 @@ public class SecurityConfig {
     @Autowired
     private SecurityFilter securityFilter;
     @Autowired
+    private TerminalHttpAuthenticationFilter terminalHttpAuthenticationFilter;
+    @Autowired
     private UserDetailsService userDetailsService;
 
     @Bean
@@ -39,40 +41,63 @@ public class SecurityConfig {
                 ).authorizeHttpRequests(authorization -> authorization
                         .requestMatchers(
                                 "/mercado-pago/oauth/callback", "/mp/oauth/callback",
-                                "/produtos/sync", "/produtos/home", "/public/leads", "/public/app-config"
+                                "/public/leads", "/public/app-config",
+                                "/", "/error", "/actuator/health", "/terminal/health",
+                                "/terminal/serial/*", "/webhook/mercadopago",
+                                "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html"
                         ).permitAll()
+                        .requestMatchers(HttpMethod.POST, "/onboarding", "/condominio").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/files/**").permitAll()
+                        // Transição controlada: o próprio endpoint valida o segredo legado e o terminal alvo.
+                        .requestMatchers(HttpMethod.POST, "/terminal/*/credential/migrate").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/register", "/auth/login", "/auth/login/admin",
                                 "/auth/send-code", "/auth/validate-code").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/user/recuperar", "/user/validar",
+                                "/user/redefinir-senha").permitAll()
                         .requestMatchers("/auth/**").denyAll()
+                        .requestMatchers("/checkout", "/checkout/session").denyAll()
+                        .requestMatchers(
+                                "/terminal-socket", "/payment-socket/**", "/ws/**",
+                                "/produtos/sync", "/produtos/home", "/terminais/*/produtos-disponiveis",
+                                "/terminal/telemetry", "/terminal/*/bootstrap", "/terminal/*/factory-reset/**",
+                                "/terminal/customer-link/consume", "/terminal/coupons/apply",
+                                "/carrinho/**", "/order/**", "/pagamento/terminal/**",
+                                "/checkout/carrinho", "/checkout/qrcode", "/comprovante/**"
+                        ).hasRole("TERMINAL")
                         .requestMatchers(
                                 "/admin/**", "/empresas/**", "/condominios/**", "/terminais/**",
                                 "/produtos/**", "/promocoes/**", "/estoque-empresa/**",
                                 "/estoque/geral", "/transferencias-estoque/**", "/inventarios/**",
                                 "/planogramas/**", "/mercado-pago/**",
-                                "/mp/oauth/mercadopago/**", "/mp/oauth/terminal/**"
+                                "/mp/oauth/mercadopago/**", "/mp/oauth/terminal/**",
+                                "/files/**", "/api/testes/mercadopago/**"
                         ).hasAnyRole("ADMIN", "GERENTE")
                         .requestMatchers("/app-cliente/**").hasRole("USER")
-                        .anyRequest().permitAll()
+                        .requestMatchers("/user/**").hasRole("USER")
+                        .anyRequest().denyAll()
                 )
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(
                         (request, response, exception) -> {
                             Object failureCode = request.getAttribute(SecurityFilter.FAILURE_CODE_ATTRIBUTE);
-                            if (!(failureCode instanceof String code)) {
-                                response.sendError(HttpServletResponse.SC_FORBIDDEN);
-                                return;
-                            }
+                            String code = failureCode instanceof String value ? value : "AUTH_REQUIRED";
                             String message = switch (code) {
                                 case "COMPANY_DISABLED" -> "Empresa desativada ou encerrada";
                                 case "COMPANY_NOT_FOUND" -> "Empresa do token não está disponível";
                                 case "USER_DISABLED" -> "Usuário desativado";
+                                case "TERMINAL_AUTH_INVALID" -> "Credencial do Terminal inválida";
+                                case "AUTH_REQUIRED" -> "Autenticação obrigatória";
                                 default -> "Acesso negado";
                             };
-                            response.setStatus(HttpStatus.FORBIDDEN.value());
+                            HttpStatus status = code.equals("TERMINAL_AUTH_INVALID")
+                                    || code.equals("AUTH_REQUIRED")
+                                    ? HttpStatus.UNAUTHORIZED : HttpStatus.FORBIDDEN;
+                            response.setStatus(status.value());
                             response.setCharacterEncoding(java.nio.charset.StandardCharsets.UTF_8.name());
                             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
                             objectMapper.writeValue(response.getOutputStream(), new RestErrorMessage(
-                                    HttpStatus.FORBIDDEN, message, code, null));
+                                    status, message, code, null));
                         }))
+                .addFilterBefore(terminalHttpAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(securityFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
     }

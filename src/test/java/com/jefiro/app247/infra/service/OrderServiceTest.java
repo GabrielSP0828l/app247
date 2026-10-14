@@ -11,6 +11,7 @@ import com.jefiro.app247.domain.model.enum_type.CarrinhoStatus;
 import com.jefiro.app247.domain.model.enum_type.ItemStatus;
 import com.jefiro.app247.domain.model.enum_type.UnidadeMedida;
 import com.jefiro.app247.domain.model.terminal.Terminal;
+import com.jefiro.app247.domain.model.auth.User;
 import com.jefiro.app247.infra.event.OrderReservadaEvent;
 import com.jefiro.app247.infra.repository.OrderRepository;
 import org.junit.jupiter.api.Test;
@@ -72,6 +73,8 @@ class OrderServiceTest {
         carrinho.setTerminal(terminal);
         carrinho.setStatus(CarrinhoStatus.OPEN);
         carrinho.setSubtotal(new BigDecimal("7.500000"));
+        User linkedUser=new User();linkedUser.setIdUser("user-a");linkedUser.setEmpresa(empresa);linkedUser.setCondominio(condominio);
+        carrinho.setUser(linkedUser);
         carrinho.addItem(item);
 
         Produto produtoCompleto = new Produto();
@@ -94,6 +97,7 @@ class OrderServiceTest {
                 .isNull();
         assertThat(item.getProduto()).isSameAs(produtoCompleto);
         assertThat(order.getItems()).hasSize(1);
+        assertThat(order.getUser()).isSameAs(linkedUser);
         OrderItem snapshot = order.getItems().get(0);
         assertThat(snapshot.getCodigoInterno()).isEqualTo("asdaw3");
         assertThat(snapshot.getProduto()).isSameAs(produtoCompleto);

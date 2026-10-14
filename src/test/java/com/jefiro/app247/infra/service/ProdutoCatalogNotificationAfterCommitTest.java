@@ -72,7 +72,7 @@ class ProdutoCatalogNotificationAfterCommitTest {
     }
 
     @Configuration
-    @EnableTransactionManagement
+    @EnableTransactionManagement(proxyTargetClass = true)
     static class Config {
         @Bean DataSource dataSource() {
             return new EmbeddedDatabaseBuilder()
@@ -91,6 +91,10 @@ class ProdutoCatalogNotificationAfterCommitTest {
 
         @Bean PaymentWebSocketHandler webSocketHandler() {
             return mock(PaymentWebSocketHandler.class);
+        }
+
+        @Bean TerminalRequestAuthorizationService terminalRequestAuthorizationService() {
+            return mock(TerminalRequestAuthorizationService.class);
         }
 
         @Bean ObjectMapper objectMapper() {

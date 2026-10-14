@@ -60,6 +60,15 @@ public class OrderService {
         Order order = new Order(carrinho);
         priceFinalizationService.initializeSnapshot(order, carrinho);
 
+        if (carrinho.getUser() != null) {
+            User linked = carrinho.getUser();
+            if (linked.getEmpresa() == null || linked.getCondominio() == null
+                    || !linked.getEmpresa().getId().equals(carrinho.getEmpresa().getId())
+                    || !linked.getCondominio().getIdCondominio().equals(carrinho.getCondominio().getIdCondominio())) {
+                throw new IllegalStateException("Cliente vinculado ao carrinho possui tenant inválido");
+            }
+        }
+
         if (id_user != null) {
             User user = userService.getUser(id_user);
             if (user.getEmpresa() == null || carrinho.getEmpresa() == null
@@ -114,6 +123,10 @@ public class OrderService {
 
     public Optional<Order> findByCarrinho(String carrinhoId) {
         return repository.findByCarrinhoIdCarrinho(carrinhoId);
+    }
+
+    public Carrinho getCartForAuthorization(String carrinhoId) {
+        return carrinhoService.getById(carrinhoId);
     }
 
     public Order getOrderForUpdate(String idOrder) {

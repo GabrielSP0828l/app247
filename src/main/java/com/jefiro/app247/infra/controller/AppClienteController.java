@@ -49,7 +49,7 @@ public class AppClienteController {
     }
 
     @PostMapping("/identificacao-tokens")
-    public ResponseEntity<TokenResponse> identificar() {
+    public ResponseEntity<CustomerIdentificationTokenResponse> identificar() {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.identificationToken());
     }
 

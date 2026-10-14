@@ -1,6 +1,8 @@
 package com.jefiro.app247.infra.service;
 
 import com.jefiro.app247.domain.model.dto.OrderResponse;
+import com.jefiro.app247.domain.model.dto.MercadoPagoRefundResponse;
+import com.jefiro.app247.domain.model.PaymentAttempt;
 
 record MercadoPagoOrderState(
         String externalReference,
@@ -13,7 +15,8 @@ record MercadoPagoOrderState(
         Integer installments,
         String mercadoPagoOrderId,
         Integer version,
-        String eventDate
+        String eventDate,
+        String refundId
 ) {
     static MercadoPagoOrderState from(OrderResponse response) {
         OrderResponse.Payment payment = response.transactions() != null
@@ -28,6 +31,14 @@ record MercadoPagoOrderState(
                 payment != null && payment.paymentMethod() != null ? payment.paymentMethod().id() : null,
                 payment != null && payment.paymentMethod() != null ? payment.paymentMethod().type() : null,
                 payment != null && payment.paymentMethod() != null ? payment.paymentMethod().installments() : null,
-                response.id(), response.version(), response.lastUpdatedDate());
+                response.id(), response.version(), response.lastUpdatedDate(), null);
+    }
+
+    static MercadoPagoOrderState fromRefund(MercadoPagoRefundResponse response,
+                                             PaymentAttempt attempt) {
+        return new MercadoPagoOrderState(
+                attempt.getExternalReference(), response.status(), response.statusDetail(),
+                response.statusDetail(), attempt.getTransactionId(), null, null, null,
+                response.id(), null, null, response.firstRefundId());
     }
 }

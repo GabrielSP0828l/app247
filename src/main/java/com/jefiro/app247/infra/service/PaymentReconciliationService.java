@@ -4,7 +4,9 @@ import com.jefiro.app247.domain.model.Order;
 import com.jefiro.app247.domain.model.dto.OrderResponse;
 import com.jefiro.app247.domain.model.dto.PaymentStatusResponse;
 import com.jefiro.app247.domain.model.enum_type.order.OrderStatus;
+import com.jefiro.app247.domain.model.enum_type.PagamentoStatus;
 import com.jefiro.app247.infra.repository.OrderRepository;
+import com.jefiro.app247.infra.repository.PagamentoRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +27,7 @@ public class PaymentReconciliationService {
 
     @Autowired OrderService orderService;
     @Autowired OrderRepository orderRepository;
+    @Autowired PagamentoRepository pagamentoRepository;
     @Autowired MercadoPagoOrderQueryService mercadoPagoOrderQueryService;
     @Autowired PaymentStateTransitionService transitionService;
     @Autowired PointPaymentSubmissionService submissionService;
@@ -63,6 +66,29 @@ public class PaymentReconciliationService {
         return reconcileOrRecover(order, "MANUAL");
     }
 
+    public boolean reconcileRefund(String orderId, String origin) {
+        Order order = orderService.getOrderForReconciliation(orderId);
+        if (order.getPagamento() == null
+                || order.getPagamento().getRefundRequestedAt() == null
+                || order.getPagamento().getRefundConfirmedAt() != null) {
+            return order.getStatus() == OrderStatus.REFUNDED;
+        }
+        validateOwnership(order);
+        OrderResponse remote = mercadoPagoOrderQueryService.getOrderByEmpresa(
+                order.getEmpresa().getId(), order.getMpOrderId());
+        if (remote.id() == null || !order.getMpOrderId().equals(remote.id())) {
+            throw new IllegalStateException("Consulta de reembolso retornou outra Order Mercado Pago");
+        }
+        if (remote.externalReference() == null
+                || !order.getPagamento().getExternalReference().equals(remote.externalReference())) {
+            throw new IllegalStateException("Consulta de reembolso retornou external_reference divergente");
+        }
+        log.info("[PAYMENT-REFUND] reconciliação origin={} orderId={} remoteStatus={}",
+                origin, orderId, remote.status());
+        transitionService.apply(MercadoPagoOrderState.from(remote));
+        return orderService.getOrderForReconciliation(orderId).getStatus() == OrderStatus.REFUNDED;
+    }
+
     public Optional<PaymentStatusResponse> recoverActiveForTerminal(String terminalId) {
         List<String> orderIds = orderRepository.findUnresolvedPaymentOrderIdsForTerminal(
                 terminalId, RECONCILIABLE, PageRequest.of(0, 2));
@@ -91,6 +117,16 @@ public class PaymentReconciliationService {
                 reconcileOrRecover(order, origin);
             } catch (RuntimeException error) {
                 log.warn("[PAYMENT-RECONCILIATION] falha isolada; origin={} orderId={} errorType={}",
+                        origin, orderId, error.getClass().getSimpleName());
+            }
+        }
+        List<String> refundIds = pagamentoRepository.findPendingRefundOrderIds(
+                PagamentoStatus.PROCESSED, PageRequest.of(0, batchSize));
+        for (String orderId : refundIds) {
+            try {
+                reconcileRefund(orderId, origin + "_REFUND");
+            } catch (RuntimeException error) {
+                log.warn("[PAYMENT-REFUND] reconciliação pendente falhou; origin={} orderId={} errorType={}",
                         origin, orderId, error.getClass().getSimpleName());
             }
         }

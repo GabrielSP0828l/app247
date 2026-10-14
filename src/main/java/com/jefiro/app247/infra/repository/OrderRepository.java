@@ -23,6 +23,16 @@ public interface OrderRepository extends JpaRepository<Order, String> {
     Page<Order> findByUserIdUserAndEmpresaIdOrderByCreatedAtDesc(String userId,String empresaId,Pageable pageable);
 
     @Query("""
+            select new com.jefiro.app247.domain.model.dto.OrderDTO(
+                o.idOrder, o.status, o.subtotal, o.desconto, o.totalCobrado, o.createdAt
+            ) from Order o
+            where o.user.idUser=:userId and o.empresa.id=:empresaId
+            """)
+    Page<OrderDTO> findOrderDtosByUserAndEmpresa(@Param("userId") String userId,
+                                                  @Param("empresaId") String empresaId,
+                                                  Pageable pageable);
+
+    @Query("""
             select o from Order o
             left join o.customerIdentity i
             where o.empresa.id=:empresaId
@@ -121,6 +131,12 @@ public interface OrderRepository extends JpaRepository<Order, String> {
             """)
     Page<OrderDTO> findOrdersByUserId(@Param("userId") String userId, Pageable pageable);
     Optional<Order> findByCarrinhoIdCarrinho(String carrinhoId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"empresa", "user", "paymentAttempts"})
+    @Query("select o from Order o where o.idOrder=:orderId and o.empresa.id=:empresaId")
+    Optional<Order> findForAdminRefund(@Param("orderId") String orderId,
+                                       @Param("empresaId") String empresaId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from Order o where o.idOrder = :orderId")

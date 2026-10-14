@@ -24,6 +24,6 @@ public class OpenApiConfig {
                                         .type(SecurityScheme.Type.APIKEY)
                                         .in(SecurityScheme.In.HEADER)
                                         .name("X-Terminal-Token")
-                                        .description("Credencial interna provisionada no Terminal; nunca é enviada no body ou query string.")));
+                                        .description("Credencial individual do dispositivo, retornada uma vez e persistida somente por hash; nunca é enviada no body ou query string.")));
     }
 }

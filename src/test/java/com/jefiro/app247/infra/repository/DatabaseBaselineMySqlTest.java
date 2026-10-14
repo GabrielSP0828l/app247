@@ -22,6 +22,9 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 
 import com.jefiro.app247.domain.model.dto.OrderResponse;
 import com.jefiro.app247.infra.service.CouponLifecycleService;
@@ -71,7 +74,7 @@ class DatabaseBaselineMySqlTest {
     @MockitoBean MercadoPagoCobrancaService mercadoPago;
 
     @Test
-    void baselineVaziaExecutaDezenoveMigrationsECriaQuarentaEOitoTabelas() {
+    void baselineVaziaExecutaVinteEDuasMigrationsECriaQuarentaENoveTabelas() {
         Integer migrations = jdbc.queryForObject(
                 "select count(*) from flyway_schema_history where success = 1", Integer.class);
         Integer tables = jdbc.queryForObject("""
@@ -81,8 +84,8 @@ class DatabaseBaselineMySqlTest {
                    and table_name <> 'flyway_schema_history'
                 """, Integer.class);
 
-        assertThat(migrations).isEqualTo(19);
-        assertThat(tables).isEqualTo(48);
+        assertThat(migrations).isEqualTo(22);
+        assertThat(tables).isEqualTo(49);
     }
 
     @Test
@@ -347,7 +350,7 @@ class DatabaseBaselineMySqlTest {
         try {
             java.util.concurrent.Callable<Integer> request = () -> mvc.perform(
                             post("/pagamento/terminal/{cartId}", fixture.cartId)
-                                    .header("X-Terminal-Token", "test-terminal-token")
+                                    .header("X-Terminal-Token", fixture.deviceCredential)
                                     .header("X-Terminal-Id", fixture.terminalId))
                     .andReturn().getResponse().getStatus();
             var results = pool.invokeAll(List.of(request, request));
@@ -379,9 +382,9 @@ class DatabaseBaselineMySqlTest {
         reset(mercadoPago);
 
         mvc.perform(post("/pagamento/terminal/{cartId}", fixtureA.cartId)
-                        .header("X-Terminal-Token", "test-terminal-token")
+                        .header("X-Terminal-Token", fixtureA.deviceCredential)
                         .header("X-Terminal-Id", fixtureB.terminalId))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isForbidden());
 
         assertThat(jdbc.queryForObject(
                 "select count(*) from payment_attempt where order_id=?", Integer.class,
@@ -470,6 +473,7 @@ class DatabaseBaselineMySqlTest {
         String accountId = UUID.randomUUID().toString();
         String mpUser = "mp-user-" + suffix;
         String pointId = "point-" + suffix;
+        String deviceCredential = "test-device-" + suffix;
 
         jdbc.update("""
                 insert into empresa
@@ -483,10 +487,11 @@ class DatabaseBaselineMySqlTest {
         jdbc.update("""
                 insert into terminal
                 (id,condominio_id,nome,codigo,mercado_pago_terminal_id,ativo,status,lifecycle_state,
+                 device_credential_hash,device_credential_version,device_credential_created_at,
                  created_at,updated_at)
-                values (?,?,?,?,?,true,'ONLINE','ACTIVE',utc_timestamp(6),utc_timestamp(6))
+                values (?,?,?,?,?,true,'ONLINE','ACTIVE',?,1,utc_timestamp(6),utc_timestamp(6),utc_timestamp(6))
                 """, terminalId, condominioId, "Terminal " + suffix,
-                "TERM-" + suffix, pointId);
+                "TERM-" + suffix, pointId, sha256(deviceCredential));
         jdbc.update("""
                 insert into carrinho
                 (id,empresa_id,condominio_id,terminal_id,status,subtotal,created_at,updated_at)
@@ -529,7 +534,8 @@ class DatabaseBaselineMySqlTest {
                  status,linked_at,created_at,updated_at)
                 values (?,?,?,?,?,'ACTIVE',utc_timestamp(6),utc_timestamp(6),utc_timestamp(6))
                 """, UUID.randomUUID().toString(), empresaId, terminalId, accountId, pointId);
-        return new PaymentFixture(suffix, empresaId, condominioId, terminalId, cartId, orderId);
+        return new PaymentFixture(suffix, empresaId, condominioId, terminalId, cartId, orderId,
+                deviceCredential);
     }
 
     private void insertReservedCoupon(String couponId, String empresaId, String userId,
@@ -559,7 +565,17 @@ class DatabaseBaselineMySqlTest {
     }
 
     private record PaymentFixture(String suffix, String empresaId, String condominioId,
-                                  String terminalId, String cartId, String orderId) {}
+                                  String terminalId, String cartId, String orderId,
+                                  String deviceCredential) {}
+
+    private String sha256(String value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception impossible) {
+            throw new IllegalStateException(impossible);
+        }
+    }
 
     private void insertAttempt(String attemptId, int number, String status, String idempotency,
                                String externalReference, String providerOrderId, String providerPaymentId) {

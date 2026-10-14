@@ -6,7 +6,9 @@ import com.jefiro.app247.domain.model.dto.TerminalResponseDTO;
 import com.jefiro.app247.infra.service.TerminalService;
 import com.jefiro.app247.infra.service.MercadoPagoTerminalService;
 import com.jefiro.app247.infra.service.TerminalLifecycleService;
+import com.jefiro.app247.infra.service.TerminalRequestAuthorizationService;
 import com.jefiro.app247.domain.model.dto.TerminalBootstrapResponse;
+import com.jefiro.app247.domain.model.dto.TerminalCredentialResponse;
 import com.jefiro.app247.infra.dto.mercadopago.VincularTerminalMercadoPagoRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -20,6 +22,8 @@ public class TerminalController {
     private final TerminalService service;
     private final MercadoPagoTerminalService mercadoPagoTerminalService;
     private final TerminalLifecycleService lifecycleService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private TerminalRequestAuthorizationService terminalAuthorization;
 
     public TerminalController(TerminalService service, MercadoPagoTerminalService mercadoPagoTerminalService,
                               TerminalLifecycleService lifecycleService) {
@@ -74,19 +78,52 @@ public class TerminalController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/terminais/{terminalId}/credential")
+    public ResponseEntity<TerminalCredentialResponse> provisionCredential(@PathVariable String terminalId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(terminalAuthorization.provision(terminalId));
+    }
+
+    @PostMapping("/terminais/{terminalId}/credential/rotate")
+    public ResponseEntity<TerminalCredentialResponse> rotateCredential(@PathVariable String terminalId) {
+        return ResponseEntity.ok(terminalAuthorization.rotate(terminalId));
+    }
+
+    @DeleteMapping("/terminais/{terminalId}/credential")
+    public ResponseEntity<Void> revokeCredential(@PathVariable String terminalId) {
+        terminalAuthorization.revoke(terminalId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/terminal/{terminalId}/credential/migrate")
+    public ResponseEntity<TerminalCredentialResponse> migrateLegacyCredential(
+            @PathVariable String terminalId,
+            @RequestHeader(value = "X-Terminal-Token", required = false) String legacyCredential) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(terminalAuthorization.migrateLegacy(legacyCredential, terminalId));
+    }
+
     @GetMapping("/terminal/{terminalId}/bootstrap")
-    public ResponseEntity<TerminalBootstrapResponse> bootstrap(@PathVariable String terminalId) {
+    public ResponseEntity<TerminalBootstrapResponse> bootstrap(
+            @PathVariable String terminalId,
+            @RequestHeader(value = "X-Terminal-Token", required = false) String credential) {
+        terminalAuthorization.authorizeLifecycle(credential, terminalId);
         return ResponseEntity.ok(lifecycleService.consultar(terminalId));
     }
 
     @PostMapping("/terminal/{terminalId}/factory-reset/started")
-    public ResponseEntity<Void> factoryResetStarted(@PathVariable String terminalId) {
+    public ResponseEntity<Void> factoryResetStarted(
+            @PathVariable String terminalId,
+            @RequestHeader(value = "X-Terminal-Token", required = false) String credential) {
+        terminalAuthorization.authorizeFactoryReset(credential, terminalId);
         lifecycleService.confirmarInicio(terminalId);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/terminal/{terminalId}/factory-reset/completed")
-    public ResponseEntity<Void> factoryResetCompleted(@PathVariable String terminalId) {
+    public ResponseEntity<Void> factoryResetCompleted(
+            @PathVariable String terminalId,
+            @RequestHeader(value = "X-Terminal-Token", required = false) String credential) {
+        terminalAuthorization.authorizeFactoryReset(credential, terminalId);
         lifecycleService.confirmarConclusao(terminalId);
         return ResponseEntity.noContent().build();
     }

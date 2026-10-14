@@ -56,6 +56,13 @@ public class CheckoutSessionService {
         return pngOutputStream.toByteArray();
     }
 
+    public CheckoutSession getSession(String id) {
+        return repository.findById(id).orElseThrow(() ->
+                new com.jefiro.app247.infra.exception.ApiBusinessException(
+                        org.springframework.http.HttpStatus.NOT_FOUND,
+                        "CHECKOUT_SESSION_NOT_FOUND", "Sessão de checkout não encontrada"));
+    }
+
     public boolean setUser(String id, String session) {
         CheckoutSession checkoutSession = repository.findById(session)
                 .orElseThrow(() -> new IllegalArgumentException("Sessão inválida ou expirada"));

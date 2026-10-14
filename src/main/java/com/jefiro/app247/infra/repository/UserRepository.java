@@ -20,6 +20,13 @@ import java.util.Optional;
 public interface UserRepository extends JpaRepository<User, String> {
     Optional<User> findByEmail(String email);
 
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"empresa", "condominio"})
+    @Query("select u from User u where u.idUser=:userId")
+    Optional<User> findByIdWithTenant(@Param("userId") String userId);
+
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"empresa", "condominio"})
+    Optional<User> findByIdUserAndEmpresaId(String userId, String empresaId);
+
     boolean existsByEmailIgnoreCase(String email);
 
     UserDetails findByCpf(String cpf);

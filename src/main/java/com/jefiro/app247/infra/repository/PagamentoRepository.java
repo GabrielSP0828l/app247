@@ -85,4 +85,14 @@ public interface PagamentoRepository extends JpaRepository<PaymentAttempt, Strin
                                                @Param("externalReference") String externalReference);
     java.util.List<PaymentAttempt> findByOrderIdOrderOrderByAttemptNumberAsc(String orderId);
     boolean existsByEmpresaIdAndStatusIn(String empresaId, Collection<PagamentoStatus> statuses);
+
+    @Query("""
+            select a.order.idOrder from PaymentAttempt a
+            where a.refundRequestedAt is not null
+              and a.refundConfirmedAt is null
+              and a.status = :processed
+            order by a.refundRequestedAt asc
+            """)
+    java.util.List<String> findPendingRefundOrderIds(
+            @Param("processed") PagamentoStatus processed, Pageable pageable);
 }

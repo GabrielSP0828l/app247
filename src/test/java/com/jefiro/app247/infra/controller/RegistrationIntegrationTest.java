@@ -67,6 +67,23 @@ class RegistrationIntegrationTest {
         assertThat(users.existsByCpf("11144477735")).isTrue();
     }
 
+    @Test void contaGlobalFazLoginESolicitaVinculoAntesDoBootstrap() throws Exception {
+        String cpf = "16899535009";
+        register(cpf, "global-login@example.com");
+
+        String loginBody = mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cpf\":\"" + cpf + "\",\"senha\":\"segredo\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andReturn().getResponse().getContentAsString();
+        String token = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(loginBody).get("token").asText();
+
+        mvc.perform(get("/app-cliente/bootstrap").header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TENANT_LINK_REQUIRED"));
+    }
+
     @Test void rejeitaFormularioVazioCpfEmailESenhaInvalidos() throws Exception {
         mvc.perform(post("/auth/register").contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REGISTRATION_DATA"));

@@ -5,6 +5,7 @@ import com.jefiro.app247.domain.model.Order;
 import com.jefiro.app247.domain.model.PaymentAttempt;
 import com.jefiro.app247.domain.model.terminal.Terminal;
 import com.jefiro.app247.domain.model.dto.OrderResponse;
+import com.jefiro.app247.domain.model.dto.MercadoPagoRefundResponse;
 import com.jefiro.app247.domain.model.dto.mercadopago.OrderRequest;
 import com.jefiro.app247.domain.model.enum_type.order.OrderStatus;
 import com.jefiro.app247.infra.exception.ExternalServiceException;
@@ -26,8 +27,11 @@ import org.slf4j.LoggerFactory;
 @Service
 public class MercadoPagoCobrancaService {
 
-    private static final String URL = "https://api.mercadopago.com/v1/orders";
+    private static final String DEFAULT_API_BASE_URL = "https://api.mercadopago.com";
     private static final Logger log = LoggerFactory.getLogger(MercadoPagoCobrancaService.class);
+
+    @Value("${mercado-pago.api-base-url:https://api.mercadopago.com}")
+    String apiBaseUrl;
 
     @Value("${mercado-pago.point.expiration-time:PT15M}")
     String expirationTime = "PT15M";
@@ -68,7 +72,7 @@ public class MercadoPagoCobrancaService {
         headers.set("X-Idempotency-Key", attempt.getCancellationIdempotencyKey());
         try {
             ResponseEntity<OrderResponse> response = restTemplate.exchange(
-                    URL + "/" + order.getMpOrderId() + "/cancel",
+                    ordersUrl() + "/" + order.getMpOrderId() + "/cancel",
                     HttpMethod.POST, new HttpEntity<Void>(headers), OrderResponse.class);
             OrderResponse body = response.getBody();
             if (body == null || !order.getMpOrderId().equals(body.id())) {
@@ -91,6 +95,52 @@ public class MercadoPagoCobrancaService {
         } catch (RestClientException e) {
             throw new ExternalServiceException("Mercado Pago", ExternalFailureType.UNAVAILABLE,
                     "Falha de comunicação ao cancelar order", e);
+        }
+    }
+
+    public MercadoPagoRefundResponse refundRemoteOrder(Order order) {
+        if (order == null || order.getPagamento() == null
+                || order.getMpOrderId() == null || order.getMpOrderId().isBlank()) {
+            throw new IllegalStateException("Order sem identidade remota para reembolso");
+        }
+        PaymentAttempt attempt = order.getPagamento();
+        if (attempt.getRefundIdempotencyKey() == null
+                || attempt.getRefundIdempotencyKey().isBlank()) {
+            throw new IllegalStateException("Reembolso sem chave idempotente persistida");
+        }
+        String empresaId = order.getEmpresa().getId();
+        Terminal terminal = terminalRepository
+                .findByIdTerminalAndCondominioEmpresaId(order.getIdTerminal(), empresaId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Terminal interno não pertence à empresa da order"));
+        MercadoPagoConta conta = configurationService.requireConfigured(terminal, empresaId);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(conta.getAccessToken());
+        headers.set("X-Idempotency-Key", attempt.getRefundIdempotencyKey());
+        try {
+            ResponseEntity<MercadoPagoRefundResponse> response = restTemplate.exchange(
+                    ordersUrl() + "/" + order.getMpOrderId() + "/refund",
+                    HttpMethod.POST, new HttpEntity<Void>(headers), MercadoPagoRefundResponse.class);
+            MercadoPagoRefundResponse body = response.getBody();
+            if (body == null || !order.getMpOrderId().equals(body.id())) {
+                throw new IllegalStateException("Reembolso retornou outra Order Mercado Pago");
+            }
+            if (!"refunded".equalsIgnoreCase(body.status())) {
+                throw new IllegalStateException("Mercado Pago não confirmou o reembolso");
+            }
+            return body;
+        } catch (RestClientResponseException e) {
+            ExternalFailureType failureType = classify(e);
+            log.warn("Reembolso Point não confirmado: orderId={}, httpStatus={}, failureType={}",
+                    order.getIdOrder(), e.getStatusCode().value(), failureType);
+            throw new ExternalServiceException("Mercado Pago", failureType,
+                    "Reembolso recusado com HTTP " + e.getStatusCode().value(), e);
+        } catch (ResourceAccessException e) {
+            throw new ExternalServiceException("Mercado Pago", ExternalFailureType.TIMEOUT,
+                    "Timeout ao reembolsar order", e);
+        } catch (RestClientException e) {
+            throw new ExternalServiceException("Mercado Pago", ExternalFailureType.UNAVAILABLE,
+                    "Falha de comunicação ao reembolsar order", e);
         }
     }
 
@@ -152,7 +202,7 @@ public class MercadoPagoCobrancaService {
 
         try {
             ResponseEntity<OrderResponse> response = restTemplate.exchange(
-                    URL,
+                    ordersUrl(),
                     HttpMethod.POST,
                     entity,
                     OrderResponse.class);
@@ -225,5 +275,11 @@ public class MercadoPagoCobrancaService {
             return ExternalFailureType.UNAVAILABLE;
         }
         return ExternalFailureType.UNKNOWN;
+    }
+
+    private String ordersUrl() {
+        String baseUrl = apiBaseUrl == null || apiBaseUrl.isBlank()
+                ? DEFAULT_API_BASE_URL : apiBaseUrl;
+        return baseUrl.replaceAll("/+$", "") + "/v1/orders";
     }
 }

@@ -10,6 +10,9 @@ import com.jefiro.app247.infra.repository.UserRepository;
 import com.jefiro.app247.infra.service.EmpresaContext;
 import com.jefiro.app247.infra.service.TokenService;
 import com.jefiro.app247.infra.service.OauthMercadoPagoService;
+import com.jefiro.app247.infra.service.TerminalRequestAuthorizationService;
+import com.jefiro.app247.infra.service.PointPaymentRefundService;
+import com.jefiro.app247.domain.model.dto.admin.AdminRefundResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -21,6 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.mockito.ArgumentMatchers.any;
@@ -39,10 +43,12 @@ class AdminSecurityTest {
     @MockitoBean TokenService tokenService;
     @MockitoBean UserRepository userRepository;
     @MockitoBean OauthMercadoPagoService oauthMercadoPagoService;
+    @MockitoBean TerminalRequestAuthorizationService terminalRequestAuthorizationService;
+    @MockitoBean PointPaymentRefundService pointPaymentRefundService;
 
     @Test
     void endpointAdministrativoRejeitaChamadaAnonima() throws Exception {
-        mockMvc.perform(get("/admin/dashboard")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/dashboard")).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -64,8 +70,52 @@ class AdminSecurityTest {
     }
 
     @Test
+    void reembolsoRejeitaChamadaAnonima() throws Exception {
+        mockMvc.perform(post("/admin/orders/order-a/refund"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    void reembolsoRejeitaClienteComum() throws Exception {
+        mockMvc.perform(post("/admin/orders/order-a/refund"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void reembolsoAceitaAdmin() throws Exception {
+        when(pointPaymentRefundService.refund("order-a")).thenReturn(new AdminRefundResponse(
+                "order-a", "refunded", new java.math.BigDecimal("10.00"),
+                java.time.Instant.now(), java.time.Instant.now(), true));
+        mockMvc.perform(post("/admin/orders/order-a/refund"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.confirmed").value(true));
+    }
+
+    @Test
+    void credencialDeTerminalRejeitaChamadaAnonima() throws Exception {
+        mockMvc.perform(post("/terminais/terminal-a/credential"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    void credencialDeTerminalRejeitaUsuarioComum() throws Exception {
+        mockMvc.perform(post("/terminais/terminal-a/credential"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void credencialDeTerminalAceitaAdmin() throws Exception {
+        mockMvc.perform(post("/terminais/terminal-a/credential"))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
     void brandingDaEmpresaRejeitaChamadaAnonima() throws Exception {
-        mockMvc.perform(get("/empresas/me/branding")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/empresas/me/branding")).andExpect(status().isUnauthorized());
     }
 
     @Test

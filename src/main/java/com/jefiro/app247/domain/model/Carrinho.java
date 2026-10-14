@@ -2,6 +2,7 @@ package com.jefiro.app247.domain.model;
 
 import com.jefiro.app247.domain.model.enum_type.CarrinhoStatus;
 import com.jefiro.app247.domain.model.terminal.Terminal;
+import com.jefiro.app247.domain.model.auth.User;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -31,6 +32,9 @@ public class Carrinho {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "terminal_id", nullable = false)
     private Terminal terminal;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private User user;
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_identity_id")
     private CustomerIdentity customerIdentity;

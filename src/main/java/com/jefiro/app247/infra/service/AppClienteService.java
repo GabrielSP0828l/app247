@@ -13,6 +13,7 @@ import com.jefiro.app247.infra.repository.*;
 import com.jefiro.app247.infra.service.comprovante.ComprovanteService;
 import com.jefiro.app247.domain.model.dto.comprovante.ComprovanteRequest;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -30,6 +31,8 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -39,6 +42,7 @@ import java.util.List;
 
 @Service
 public class AppClienteService {
+    private static final String CUSTOMER_QR_PREFIX="app247://customer-link/";
     private static final Duration QR_TTL=Duration.ofMinutes(2);
     private static final SecureRandom RANDOM=new SecureRandom();
     @Autowired private UserRepository users;
@@ -55,6 +59,8 @@ public class AppClienteService {
     @Autowired private PurchaseSupportRepository supports;
     @Autowired private ComprovanteService comprovantes;
     @Autowired private StringRedisTemplate redis;
+    @Autowired private CustomerIdentificationTokenRepository identificationTokens;
+    @Value("${app.customer-link.ttl-seconds:120}") private long customerTokenTtlSeconds;
 
     @Transactional(readOnly=true)
     public Bootstrap bootstrap(){
@@ -98,12 +104,21 @@ public class AppClienteService {
         return new Accepted("ACCEPTED");
     }
 
-    @Transactional(readOnly=true)
-    public TokenResponse identificationToken(){
+    @Transactional
+    public CustomerIdentificationTokenResponse identificationToken(){
         User u=currentUser(); requireFeature(config(u).isQrIdentificacao(),"CUSTOMER_QR_DISABLED","Identificação por QR indisponível");
-        Instant now=Instant.now(); String token=randomToken();
-        redis.opsForValue().set("app:customer-token:"+token,String.join("|",u.getIdUser(),EmpresaContext.require(),u.getCondominio().getIdCondominio()),QR_TTL);
-        return new TokenResponse(token,now.plus(QR_TTL),now);
+        Instant now=Instant.now();
+        Duration ttl=Duration.ofSeconds(Math.max(30,customerTokenTtlSeconds));
+        identificationTokens.invalidateActiveForUser(u.getIdUser(),now);
+        String opaque=randomToken();
+        CustomerIdentificationToken token=new CustomerIdentificationToken();
+        token.setTokenHash(sha256(opaque));
+        token.setUser(u);
+        token.setEmpresa(u.getEmpresa());
+        token.setCondominio(u.getCondominio());
+        token.setExpiresAt(now.plus(ttl));
+        identificationTokens.save(token);
+        return new CustomerIdentificationTokenResponse(CUSTOMER_QR_PREFIX+opaque,token.getExpiresAt(),now);
     }
 
     @Transactional(readOnly=true)
@@ -215,6 +230,10 @@ public class AppClienteService {
     private static boolean loyaltyEnabled(AppClienteConfig c){return c.isFidelidade()&&c.getLoyaltyMode()!=LoyaltyMode.NONE&&((c.getLoyaltyMode()==LoyaltyMode.POINTS&&c.isPontos())||(c.getLoyaltyMode()==LoyaltyMode.CASHBACK&&c.isCashback()));}
     private static String fullName(User u){return u.getSobrenome()==null||u.getSobrenome().isBlank()?u.getNome():u.getNome()+" "+u.getSobrenome();}
     private static String randomToken(){byte[] b=new byte[32];RANDOM.nextBytes(b);return Base64.getUrlEncoder().withoutPadding().encodeToString(b);}
+    private static String sha256(String value){
+        try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.US_ASCII)));}
+        catch(NoSuchAlgorithmException impossible){throw new IllegalStateException("SHA-256 indisponível",impossible);}
+    }
     private static String randomDigits(int n){StringBuilder s=new StringBuilder();for(int i=0;i<n;i++)s.append(RANDOM.nextInt(10));return s.toString();}
     private static byte[] renderReceipt(Order o){try{int h=260+o.getItems().size()*28;BufferedImage image=new BufferedImage(760,h,BufferedImage.TYPE_INT_RGB);Graphics2D g=image.createGraphics();g.setColor(Color.WHITE);g.fillRect(0,0,760,h);g.setColor(Color.BLACK);g.setFont(new Font(Font.SANS_SERIF,Font.BOLD,24));g.drawString("APP 24/7 — COMPROVANTE",32,42);g.setFont(new Font(Font.MONOSPACED,Font.PLAIN,15));g.drawString("Pedido: "+o.getIdOrder(),32,78);g.drawString("Data: "+o.getCreatedAt(),32,102);int y=140;for(OrderItem i:o.getItems()){g.drawString(i.getNome()+"  x"+i.getQuantidade()+"  R$ "+MoneyPolicy.charged(i.getSubtotalCalculado()),32,y);y+=28;}g.setFont(new Font(Font.SANS_SERIF,Font.BOLD,20));g.drawString("TOTAL: R$ "+MoneyPolicy.charged(o.getTotalCobrado()),32,y+25);g.dispose();ByteArrayOutputStream out=new ByteArrayOutputStream();ImageIO.write(image,"png",out);return out.toByteArray();}catch(Exception e){throw new IllegalStateException("Não foi possível gerar o comprovante",e);}}
 }

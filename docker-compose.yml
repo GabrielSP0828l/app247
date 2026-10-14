@@ -12,9 +12,9 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: prod
       PORT: 8080
-      DB_URL: "jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-app247}?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true"
-      DB_USERNAME: "${MYSQL_USER}"
-      DB_PASSWORD: "${MYSQL_PASSWORD}"
+      DB_URL: "${DB_URL}"
+      DB_USERNAME: "${DB_USERNAME}"
+      DB_PASSWORD: "${DB_PASSWORD}"
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT: "${JWT}"
@@ -39,11 +39,17 @@ services:
       COMPROVANTE_PROCESSING_TTL: "${COMPROVANTE_PROCESSING_TTL:-PT2M}"
       COMPROVANTE_SUCCESS_TTL: "${COMPROVANTE_SUCCESS_TTL:-P1D}"
       COMPROVANTE_INTERNAL_TOKEN: "${COMPROVANTE_INTERNAL_TOKEN:-}"
-      TERMINAL_INTERNAL_TOKEN: "${TERMINAL_INTERNAL_TOKEN:?TERMINAL_INTERNAL_TOKEN obrigatorio}"
+      TERMINAL_INTERNAL_TOKEN: "${TERMINAL_INTERNAL_TOKEN:-}"
+      TERMINAL_LEGACY_AUTH_ENABLED: "${TERMINAL_LEGACY_AUTH_ENABLED:-false}"
+      WEBSOCKET_ALLOWED_ORIGINS: "${WEBSOCKET_ALLOWED_ORIGINS:?WEBSOCKET_ALLOWED_ORIGINS obrigatorio}"
+      PASSWORD_RECOVERY_WINDOW: "${PASSWORD_RECOVERY_WINDOW:-PT15M}"
+      PASSWORD_RECOVERY_REQUEST_LIMIT: "${PASSWORD_RECOVERY_REQUEST_LIMIT:-5}"
+      PASSWORD_RECOVERY_VALIDATE_LIMIT: "${PASSWORD_RECOVERY_VALIDATE_LIMIT:-5}"
+      PASSWORD_RECOVERY_RESET_LIMIT: "${PASSWORD_RECOVERY_RESET_LIMIT:-5}"
+      PASSWORD_RECOVERY_CODE_TTL: "${PASSWORD_RECOVERY_CODE_TTL:-PT15M}"
+      PASSWORD_RECOVERY_TOKEN_TTL: "${PASSWORD_RECOVERY_TOKEN_TTL:-PT15M}"
       JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError}"
     depends_on:
-      mysql:
-        condition: service_healthy
       redis:
         condition: service_healthy
     read_only: true
@@ -60,7 +66,7 @@ services:
         max-file: "3"
 
   comprovante-service:
-    image: "${COMPROVANTE_IMAGE:-jefiroo/comprovante-service:2.0.0}"
+    image: "${COMPROVANTE_IMAGE}"
     container_name: comprovante-service
     pull_policy: always
     init: true
@@ -70,7 +76,7 @@ services:
       - "127.0.0.1:8000:8000"
 
     environment:
-      N8N_COMPROVANTE_WEBHOOK_URL: "${N8N_COMPROVANTE_WEBHOOK_URL:?N8N_COMPROVANTE_WEBHOOK_URL obrigatoria}"
+      N8N_COMPROVANTE_WEBHOOK_URL: "${N8N_COMPROVANTE_WEBHOOK_URL}"
       N8N_COMPROVANTE_TIMEOUT_SECONDS: "${N8N_COMPROVANTE_TIMEOUT_SECONDS:-30}"
       COMPROVANTE_LOGO_PATH: "${COMPROVANTE_LOGO_PATH:-/app/logo.png}"
       COMPROVANTE_INTERNAL_TOKEN: "${COMPROVANTE_INTERNAL_TOKEN:?COMPROVANTE_INTERNAL_TOKEN obrigatorio}"
@@ -122,32 +128,6 @@ services:
       NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
     ports:
       - "4040:4040"
-  mysql:
-    image: mysql:8.4
-    restart: unless-stopped
-    environment:
-      MYSQL_DATABASE: "${MYSQL_DATABASE:-app247}"
-      MYSQL_USER: "${MYSQL_USER}"
-      MYSQL_PASSWORD: "${MYSQL_PASSWORD}"
-      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
-      TZ: UTC
-    ports:
-      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
-    volumes:
-      - mysql_data_v2:/var/lib/mysql
-    healthcheck:
-      test: [ "CMD-SHELL", "mysqladmin ping --host=localhost --user=root --password=\"$${MYSQL_ROOT_PASSWORD}\" --silent" ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    security_opt:
-      - no-new-privileges:true
-    logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "3"
   redis:
     image: redis:8-alpine
     restart: unless-stopped

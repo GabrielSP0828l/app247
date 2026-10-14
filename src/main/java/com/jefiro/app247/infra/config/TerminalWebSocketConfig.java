@@ -15,6 +15,12 @@ public class TerminalWebSocketConfig implements WebSocketConfigurer {
     PaymentWebSocketHandler paymentSocket;
     @Autowired
     TerminalWebSocketHandler terminalWebSocketHandler;
+    @Autowired
+    TerminalHandshakeInterceptor terminalHandshakeInterceptor;
+    @Autowired
+    TerminalHandshakeHandler terminalHandshakeHandler;
+    @Autowired
+    WebSocketOrigins webSocketOrigins;
 
     @Override
     public void registerWebSocketHandlers(
@@ -22,13 +28,17 @@ public class TerminalWebSocketConfig implements WebSocketConfigurer {
     ) {
 
         registry.addHandler(terminalWebSocketHandler, "/terminal-socket")
-                .setAllowedOrigins("*");
+                .addInterceptors(terminalHandshakeInterceptor)
+                .setHandshakeHandler(terminalHandshakeHandler)
+                .setAllowedOrigins(webSocketOrigins.values());
 
 
         registry.addHandler(
                 paymentSocket,
                 "/payment-socket/*"
-        ).setAllowedOrigins("*");
+        ).addInterceptors(terminalHandshakeInterceptor)
+                .setHandshakeHandler(terminalHandshakeHandler)
+                .setAllowedOrigins(webSocketOrigins.values());
     }
 
 

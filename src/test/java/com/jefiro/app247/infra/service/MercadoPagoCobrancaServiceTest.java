@@ -266,6 +266,41 @@ class MercadoPagoCobrancaServiceTest {
         assertEquals("Bearer token-a", entity.getValue().getHeaders().getFirst(HttpHeaders.AUTHORIZATION));
     }
 
+    @Test
+    void reembolsoIntegralUsaBodyVazioTokenDaEmpresaEChavePersistida() throws Exception {
+        Empresa empresa = Empresa.builder().id("empresa-a").build();
+        Order order = new Order();
+        order.setIdOrder("order-a");
+        order.setEmpresa(empresa);
+        order.setIdTerminal("terminal-a");
+        PaymentAttempt attempt = attempt(order);
+        attempt.setProviderOrderId("mp-order-a");
+        attempt.setRefundIdempotencyKey("refund-key-a");
+        order.setPagamento(attempt);
+        Terminal terminal = new Terminal();
+        terminal.setMercadoPagoTerminalId("POINT-A");
+        when(terminalRepository.findByIdTerminalAndCondominioEmpresaId("terminal-a", "empresa-a"))
+                .thenReturn(Optional.of(terminal));
+        when(configurationService.requireConfigured(terminal, "empresa-a"))
+                .thenReturn(MercadoPagoConta.builder().accessToken("token-a").build());
+        var response = new ObjectMapper().readValue("""
+                {"id":"mp-order-a","status":"refunded","status_detail":"refunded",
+                 "transactions":{"refunds":[{"id":"refund-a","amount":"25.00","status":"processed"}]}}
+                """, com.jefiro.app247.domain.model.dto.MercadoPagoRefundResponse.class);
+        ArgumentCaptor<HttpEntity<Void>> entity = ArgumentCaptor.forClass(HttpEntity.class);
+        when(restTemplate.exchange(eq("https://api.mercadopago.com/v1/orders/mp-order-a/refund"),
+                eq(HttpMethod.POST), entity.capture(),
+                eq(com.jefiro.app247.domain.model.dto.MercadoPagoRefundResponse.class)))
+                .thenReturn(ResponseEntity.status(HttpStatus.CREATED).body(response));
+
+        var returned = service().refundRemoteOrder(order);
+
+        assertEquals("refunded", returned.status());
+        assertNull(entity.getValue().getBody());
+        assertEquals("refund-key-a", entity.getValue().getHeaders().getFirst("X-Idempotency-Key"));
+        assertEquals("Bearer token-a", entity.getValue().getHeaders().getFirst(HttpHeaders.AUTHORIZATION));
+    }
+
     private MercadoPagoCobrancaService service() {
         MercadoPagoCobrancaService service = new MercadoPagoCobrancaService();
         service.oauthMercadoPagoService = oauthService;

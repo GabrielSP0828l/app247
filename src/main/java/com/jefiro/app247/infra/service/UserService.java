@@ -11,6 +11,7 @@ import com.jefiro.app247.domain.model.dto.auth.ChangePasswordRequest;
 import com.jefiro.app247.infra.event.UserCreatedEvent;
 import com.jefiro.app247.infra.exception.*;
 import com.jefiro.app247.infra.repository.CondominioRepository;
+import com.jefiro.app247.infra.repository.OrderRepository;
 import com.jefiro.app247.infra.repository.UserRepository;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,20 +24,16 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Duration;
-import java.util.Map;
-import java.util.NoSuchElementException;
-import java.security.SecureRandom;
 import java.io.IOException;
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.util.NoSuchElementException;
 
 @Service
 public class UserService {
@@ -45,6 +42,8 @@ public class UserService {
     RedisTemplate<String, Object> redisTemplate;
     @Autowired
     private UserRepository repository;
+    @Autowired
+    private OrderRepository orderRepository;
     @Autowired
     PasswordEncoder passwordEncoder;
     @Autowired
@@ -65,11 +64,6 @@ public class UserService {
     public User getUser(String user) {
         return repository.findById(user).orElseThrow(UserNotFoundException::new);
     }
-
-    private User findByCpf(String cpf) {
-        return repository.getByCpf(cpf).orElseThrow(UserNotFoundException::new);
-    }
-
 
     public AuthResponse login(AuthDTO auth) {
 
@@ -126,68 +120,10 @@ public class UserService {
         }
     }
 
-    public void recoveryPassword(String cpf) {
-        String normalized = cpfService.requireValid(cpf);
-        repository.getByCpf(normalized).ifPresent(user -> {
-            String code = String.valueOf(100000 + SECURE_RANDOM.nextInt(900000));
-
-            ValidateCodeRequest passwordRecovery = new ValidateCodeRequest(code, user.getCpf(), user.getEmail(), user.getNome());
-
-            redisTemplate.opsForList().leftPush(
-                    "recovery_queue",
-                    passwordRecovery
-            );
-
-            redisTemplate.opsForValue().set(
-                    "recovery:" + normalized,
-                    passwordRecovery,
-                    Duration.ofMinutes(15)
-            );
-        });
-
-    }
-
-    public String verificarCode(ValidateCodeRequest passwordRecovery) {
-        ValidateCodeRequest recovery = (ValidateCodeRequest) redisTemplate
-                .opsForValue()
-                .get("recovery:" + passwordRecovery.cpf());
-
-        if (recovery == null) {
-            throw new ExpiredCodeException("Código expirado");
-        }
-        if (!recovery.code().equals(passwordRecovery.code())) {
-            throw new InvalidCodeException("Código inválido");
-        }
-        redisTemplate.delete("recovery:" + passwordRecovery.cpf());
-
-        String resetToken = UUID.randomUUID().toString();
-        redisTemplate.opsForValue().set(
-                "reset:" + passwordRecovery.cpf(), resetToken, 15, TimeUnit.MINUTES);
-
-        return resetToken;
-    }
-
-    public boolean novaSenha(ResetPasswordRequest request) {
-        String token = (String) redisTemplate.opsForValue()
-                .get("reset:" + request.cpf());
-
-        if (token == null) {
-            throw new ExpiredTokenException();
-        }
-        if (!token.equals(request.token())) {
-            throw new InvalidTokenException();
-        }
-
-        User user = findByCpf(request.cpf());
-        user.setSenha(passwordEncoder.encode(request.novaSenha()));
-        repository.save(user);
-        redisTemplate.delete("reset:" + request.cpf());
-        return true;
-    }
-
-
-    public Page<OrderDTO> getOrderByUser(String user_id, Pageable pageable) {
-        return repository.findOrdersByUserId(user_id, pageable);
+    public Page<OrderDTO> getOrderByUser(User target, Pageable pageable) {
+        if (target.getEmpresa() == null) return Page.empty(pageable);
+        return orderRepository.findOrderDtosByUserAndEmpresa(
+                target.getIdUser(), target.getEmpresa().getId(), pageable);
     }
 
     public void cadastrar(@Valid UserRequestDTO requestDTO) {
@@ -215,8 +151,7 @@ public class UserService {
     }
 
     @Transactional
-    public boolean salvarFoto(MultipartFile file, String id) {
-        User user = getUser(id);
+    public boolean salvarFoto(MultipartFile file, User user) {
         try {
             user.setFotoPerfil(fileStorageService.salvarArquivo(file));
         } catch (IOException e) {
@@ -227,8 +162,7 @@ public class UserService {
         return true;
     }
 
-    public void alterarSenha(ChangePasswordRequest request) {
-        User user = getUser(request.userId());
+    public void alterarSenha(User user, ChangePasswordRequest request) {
 
         if (!passwordEncoder.matches(request.oldPassword(), user.getSenha())) {
             throw new InvalidPasswordException("Senha atual incorreta");
@@ -238,9 +172,7 @@ public class UserService {
         repository.save(user);
     }
 
-    public void atualizarUsuario(String id, UserUpdate request) {
-
-        User user = getUser(id);
+    public void atualizarUsuario(User actor, User user, UserUpdate request) {
 
         if (request.nome() != null) {
             user.setNome(request.nome());
@@ -258,12 +190,13 @@ public class UserService {
             user.setTelefone(request.telefone());
         }
 
-        if (request.ativo() != null) {
+        boolean manager = actor.getRole() == RoleUser.ADMIN || actor.getRole() == RoleUser.GERENTE;
+        if (manager && request.ativo() != null) {
             user.setAtivo(request.ativo());
         }
 
 
-        if (request.condominioId() != null) {
+        if (manager && request.condominioId() != null) {
             Condominio condominio = findById(request.condominioId());
             user.setCondominio(condominio);
         }

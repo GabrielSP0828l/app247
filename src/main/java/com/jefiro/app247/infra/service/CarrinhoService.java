@@ -9,6 +9,7 @@ import com.jefiro.app247.domain.model.dto.ItemRequest;
 import com.jefiro.app247.infra.repository.CarrinhoRepository;
 import com.jefiro.app247.infra.repository.TerminalRepository;
 import com.jefiro.app247.infra.exception.PriceChangedException;
+import com.jefiro.app247.infra.security.AuthenticatedTerminal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +38,50 @@ public class CarrinhoService {
 
     @Transactional
     public Carrinho save(CarrinhoRequest request) {
+        return populate(new Carrinho(), request);
+    }
+
+    @Transactional
+    public Carrinho createEmpty(AuthenticatedTerminal identity) {
+        var terminal = terminalRepository.findById(identity.terminalId())
+                .orElseThrow(() -> new IllegalArgumentException("Terminal não existe"));
+        if (!identity.empresaId().equals(terminal.getCondominio().getEmpresa().getId())
+                || !identity.condominioId().equals(terminal.getCondominio().getIdCondominio())) {
+            throw new com.jefiro.app247.infra.exception.ApiBusinessException(
+                    org.springframework.http.HttpStatus.FORBIDDEN,
+                    "TERMINAL_CONTEXT_MISMATCH", "Contexto do Terminal inválido");
+        }
+        Carrinho carrinho = new Carrinho();
+        carrinho.setTerminal(terminal);
+        carrinho.setSubtotal(BigDecimal.ZERO);
+        return repository.save(carrinho);
+    }
+
+    @Transactional
+    public Carrinho replaceOpenCart(String id, CarrinhoRequest request) {
+        Carrinho carrinho = getByIdForUpdate(id);
+        if (carrinho.getStatus() != com.jefiro.app247.domain.model.enum_type.CarrinhoStatus.OPEN) {
+            throw new com.jefiro.app247.infra.exception.ApiBusinessException(
+                    org.springframework.http.HttpStatus.CONFLICT,
+                    "CUSTOMER_LINK_PAYMENT_ALREADY_STARTED", "Pagamento já iniciado");
+        }
+        if (request == null || request.terminalId() == null
+                || !request.terminalId().equals(carrinho.getIdTerminal())) {
+            throw new com.jefiro.app247.infra.exception.ApiBusinessException(
+                    org.springframework.http.HttpStatus.FORBIDDEN,
+                    "CART_NOT_OWNED_BY_TERMINAL", "Carrinho não pertence ao Terminal");
+        }
+        // A constraint única (carrinho, produto) exige que os órfãos sejam
+        // efetivamente removidos antes de inserir o novo snapshot dos itens.
+        // O flush não altera o User já vinculado ao carrinho.
+        for (CartItem item : new ArrayList<>(carrinho.getItems())) {
+            carrinho.removeItem(item);
+        }
+        repository.saveAndFlush(carrinho);
+        return populate(carrinho, request);
+    }
+
+    private Carrinho populate(Carrinho carrinho, CarrinhoRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("Carrinho não informado");
         }
@@ -46,7 +91,6 @@ public class CarrinhoService {
         if (request.items() == null || request.items().isEmpty()) {
             throw new IllegalArgumentException("Carrinho deve possuir ao menos um item");
         }
-        Carrinho carrinho = new Carrinho();
         BigDecimal sub = BigDecimal.ZERO;
         var terminal = terminalRepository.findById(request.terminalId())
                 .orElseThrow(() -> new IllegalArgumentException("Terminal não existe"));

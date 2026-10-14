@@ -4,6 +4,7 @@ import com.jefiro.app247.domain.model.*;
 import com.jefiro.app247.domain.model.dto.CarrinhoRequest;
 import com.jefiro.app247.domain.model.dto.ItemRequest;
 import com.jefiro.app247.domain.model.terminal.Terminal;
+import com.jefiro.app247.domain.model.auth.User;
 import com.jefiro.app247.infra.repository.CarrinhoRepository;
 import com.jefiro.app247.infra.repository.TerminalRepository;
 import com.jefiro.app247.domain.model.enum_type.UnidadeMedida;
@@ -120,6 +121,35 @@ class CarrinhoServiceTest {
         assertThrows(IllegalArgumentException.class,
                 () -> service.save(new CarrinhoRequest("terminal-a", List.of())));
         verifyNoInteractions(terminalRepository, produtoService, repository);
+    }
+
+    @Test
+    void substituiSnapshotDeItensSemPerderClienteVinculado() {
+        Empresa empresa = Empresa.builder().id("empresa-a").build();
+        Terminal terminal = terminal(empresa);
+        Produto produto = produto("produto-a", empresa, "7.50");
+        User cliente = User.builder().idUser("user-a").build();
+        Carrinho carrinho = new Carrinho();
+        carrinho.setTerminal(terminal);
+        carrinho.setUser(cliente);
+        carrinho.addItem(new CartItem(produto, 1, null));
+        when(repository.findByIdForUpdate("cart-a")).thenReturn(Optional.of(carrinho));
+        when(terminalRepository.findById("terminal-a")).thenReturn(Optional.of(terminal));
+        when(produtoService.buscarPorIdDoTenant("produto-a", "empresa-a")).thenReturn(produto);
+        when(pricingService.calcular(eq(produto), eq(terminal.getCondominio()), any()))
+                .thenReturn(precoNormal(produto));
+        when(repository.saveAndFlush(carrinho)).thenReturn(carrinho);
+        when(repository.save(carrinho)).thenReturn(carrinho);
+
+        Carrinho atualizado = service.replaceOpenCart("cart-a", new CarrinhoRequest(
+                "terminal-a", List.of(new ItemRequest("produto-a", 2, null))));
+
+        assertSame(cliente, atualizado.getUser());
+        assertEquals(1, atualizado.getItems().size());
+        assertEquals(new BigDecimal("2"), atualizado.getItems().get(0).getQuantity());
+        var ordem = inOrder(repository);
+        ordem.verify(repository).saveAndFlush(carrinho);
+        ordem.verify(repository).save(carrinho);
     }
 
     @Test

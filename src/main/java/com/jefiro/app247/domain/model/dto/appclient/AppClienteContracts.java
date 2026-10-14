@@ -28,6 +28,7 @@ public final class AppClienteContracts {
     public record ReceiptSendRequest(@NotBlank String canal,@NotBlank String destinatario){}
     public record Accepted(String status){}
     public record TokenResponse(String token,Instant expiresAt,Instant serverTime){}
+    public record CustomerIdentificationTokenResponse(String qrPayload,Instant expiresAt,Instant serverTime){}
     public record LoyaltyMovementResponse(String id,String type,Long pointsDelta,BigDecimal cashbackDelta,String description,Instant createdAt){}
     public record Loyalty(boolean enabled,String mode,Long pointsBalance,BigDecimal cashbackBalance,RewardResponse nextReward,List<LoyaltyMovementResponse> movements){}
     public record RewardResponse(String id,String nome,String tipoDesconto,BigDecimal valorDesconto,long custoPontos,
@@ -39,8 +40,8 @@ public final class AppClienteContracts {
     public record PreferenceResponse(boolean autoEmail,boolean autoWhatsapp){}
     public record SupportRequest(@NotBlank @Size(max=50) String categoria,@NotBlank @Size(max=2000) String mensagem){}
     public record SupportResponse(String protocolo,String status){}
-    public record CustomerLinkConsumeRequest(@NotBlank String token,@NotBlank String terminalId,@NotBlank String orderId){}
-    public record CustomerLinkConsumeResponse(String status,String userId,String orderId){}
+    public record CustomerLinkConsumeRequest(@NotBlank String token,@NotBlank String cartId){}
+    public record CustomerLinkConsumeResponse(boolean linked,String displayName,String cartId){}
     public record CouponApplyRequest(@NotBlank String token,@NotBlank String terminalId,@NotBlank String orderId){}
     public record CouponApplyResponse(String status,String couponId,BigDecimal discount,BigDecimal total){}
     public record CouponMinimumError(String code,BigDecimal minimumAmount,BigDecimal currentAmount,BigDecimal missingAmount){}

@@ -2,6 +2,7 @@ package com.jefiro.app247.infra.controller;
 
 import com.jefiro.app247.domain.model.dto.estoque.*;
 import com.jefiro.app247.infra.service.EstoqueService;
+import com.jefiro.app247.infra.service.TerminalRequestAuthorizationService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 public class EstoqueController {
     @Autowired private EstoqueService service;
+    @Autowired private TerminalRequestAuthorizationService terminalAuthorization;
 
     @GetMapping("/condominios/{condominioId}/estoque")
     public ResponseEntity<?> listar(@PathVariable String condominioId) {
@@ -38,7 +40,10 @@ public class EstoqueController {
     public ResponseEntity<?> geral() { return ResponseEntity.ok(service.listarGeral()); }
 
     @GetMapping("/terminais/{terminalId}/produtos-disponiveis")
-    public ResponseEntity<?> produtosDoTerminal(@PathVariable String terminalId) {
+    public ResponseEntity<?> produtosDoTerminal(
+            @PathVariable String terminalId,
+            @RequestHeader(value = "X-Terminal-Token", required = false) String credential) {
+        terminalAuthorization.authorize(credential, terminalId);
         return ResponseEntity.ok(service.listarProdutosDoTerminal(terminalId));
     }
 

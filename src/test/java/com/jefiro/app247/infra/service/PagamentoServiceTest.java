@@ -166,8 +166,12 @@ class PagamentoServiceTest {
 
     @Test
     void reembolsoSemTransactionsEhAceito() throws Exception {
+        order.setStatus(OrderStatus.PROCESSED);
+        pagamento.setStatus(PagamentoStatus.PROCESSED);
+        pagamento.setRefundRequestedAt(java.time.Instant.now());
         process("refunded", "refunded", null, null, null, false);
         assertThat(pagamento.getStatus()).isEqualTo(PagamentoStatus.REFUNDED);
+        assertThat(pagamento.getRefundConfirmedAt()).isNotNull();
     }
 
     @Test

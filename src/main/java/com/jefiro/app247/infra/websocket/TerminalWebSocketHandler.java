@@ -10,6 +10,10 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.util.LinkedHashMap;
+import com.jefiro.app247.infra.security.AuthenticatedTerminal;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.socket.CloseStatus;
+import com.jefiro.app247.infra.service.TerminalRequestAuthorizationService;
 
 @Component
 public class TerminalWebSocketHandler extends TextWebSocketHandler {
@@ -19,6 +23,8 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
 
     @Autowired
     TerminalService service;
+    @Autowired
+    TerminalRequestAuthorizationService authorization;
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
@@ -28,6 +34,12 @@ public class TerminalWebSocketHandler extends TextWebSocketHandler {
                         message.getPayload(),
                         TerminalStatusDTO.class
         );
+        if (!(session.getPrincipal() instanceof AuthenticatedTerminal identity)
+                || !identity.terminalId().equals(dto.terminalId())) {
+            session.close(CloseStatus.POLICY_VIOLATION);
+            throw new AccessDeniedException("Heartbeat não pertence ao Terminal autenticado");
+        }
+        authorization.revalidate(identity);
         var terminal = service.updateStatus(dto);
         var acknowledgement = new LinkedHashMap<String, Object>();
         acknowledgement.put("type", "HEARTBEAT_ACK");
