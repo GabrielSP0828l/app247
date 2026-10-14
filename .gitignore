@@ -38,3 +38,7 @@ build/
 !.env.example
 uploads/
 data/
+
+### Python ###
+__pycache__/
+*.pyc
