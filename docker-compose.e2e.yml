@@ -1,0 +1,64 @@
+name: app247-terminal-e2e
+
+services:
+  mysql-e2e:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: app247_e2e
+      MYSQL_USER: app247_e2e
+      MYSQL_PASSWORD: ${E2E_DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${E2E_DB_ROOT_PASSWORD}
+      TZ: UTC
+    ports:
+      - "127.0.0.1:${E2E_MYSQL_PORT:-33306}:3306"
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+
+  redis-e2e:
+    image: redis:8-alpine
+    ports:
+      - "127.0.0.1:${E2E_REDIS_PORT:-36379}:6379"
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  point-stub:
+    image: python:3.12-alpine
+    working_dir: /stub
+    command: ["python", "point_stub.py"]
+    environment:
+      POINT_STUB_PORT: "9091"
+    volumes:
+      - ./scripts/e2e/point_stub.py:/stub/point_stub.py:ro
+    ports:
+      - "127.0.0.1:${E2E_POINT_PORT:-39091}:9091"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9091/health', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  receipt-stub:
+    image: python:3.12-alpine
+    working_dir: /stub
+    command: ["python", "receipt_stub.py"]
+    environment:
+      RECEIPT_STUB_PORT: "9092"
+    volumes:
+      - ./scripts/e2e/receipt_stub.py:/stub/receipt_stub.py:ro
+    ports:
+      - "127.0.0.1:${E2E_RECEIPT_PORT:-39092}:9092"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9092/health', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
