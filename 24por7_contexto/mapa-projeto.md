@@ -73,7 +73,7 @@ Todas as rotas estão descritas em [[api]].
 - Mercado Pago: `OauthMercadoPagoService`, `MercadoPagoTerminalService`, `MercadoPagoCobrancaService`, `MercadoPagoOrderQueryService`, `MercadoPagoWebhookSignatureService`, `MercadoPagoService`, `TestarWebhookMP`.
 - Infraestrutura: `CheckoutSessionService`, `FileStorageService`, `QRCodeService`, `PaymentWorker`, `PaymentSocketService`.
 
-`MercadoPagoService` contém PIX/Checkout Pro e código comentado; não participa das rotas atuais. `TestarWebhookMP` continua compilado, mas seu controller é condicionado por `app.test-endpoints.enabled` e fica desabilitado no profile de produção.
+Não há serviço de PIX/Checkout Pro (a antiga `MercadoPagoService` foi removida). `TestarWebhookMP` continua compilado, mas seu controller só é registrado com `app.test-endpoints.enabled=true` (padrão `false`) e nunca no profile `prod`.
 
 ## Repositories
 

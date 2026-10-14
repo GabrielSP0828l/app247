@@ -99,15 +99,17 @@ Integrações: `MP_CLIENT_ID`, `MP_CLIENT_SECRET`, `MP_OAUTH_REDIRECT_URL`, `MP_
 `SMTP_*`, `COMPROVANTE_SERVICE_URL`/`COMPROVANTE_INTERNAL_TOKEN`/timeouts, `TERMINAL_INTERNAL_TOKEN` +
 `TERMINAL_LEGACY_AUTH_ENABLED` (só migração legada), `APP_CORS_ALLOWED_ORIGIN_PATTERNS`,
 `PASSWORD_RECOVERY_*`, `TENANT_LINK_INVITATION_TTL`, `APP247_TERMS_*`/`APP247_PRIVACY_*`,
-`TEST_ENDPOINTS_ENABLED` (**default `true`** no `application.properties`; Compose força `false`),
+`TEST_ENDPOINTS_ENABLED` (default `false`; ignorado no profile `prod`),
 `PAYMENT_RECONCILIATION_*`, `PRODUCT_IMPORT_*`, `CUSTOMER_LINK_*`.
 
 Lacuna: `.env.example` não lista `SMTP_*`, `MP_*`, `COMPROVANTE_*`, `DB_URL/DB_USERNAME/DB_PASSWORD`, usados pelo Compose.
 
 ### Perfis
-- Sem perfil: `application.properties` **não define datasource**. `application-dev.properties` só tem um comentário
-  dizendo que usa "a conexão padrão de application.properties", que não existe. Subir sem `prod` provavelmente
-  cai no H2 embutido e o Flyway MySQL falha — **não verificado**; trate o perfil dev como quebrado.
+- Sem perfil: `application.properties` **não define datasource**; sempre ative `dev` ou `prod`.
+- `dev` (`application-dev.properties`): MySQL em `127.0.0.1:${MYSQL_PORT:3306}/${MYSQL_DATABASE:app247}` (ou `DB_URL`),
+  usuário/senha de `DB_USERNAME`/`DB_PASSWORD` ou `MYSQL_USER`/`MYSQL_PASSWORD` (sem default), Flyway ligado,
+  Redis em `127.0.0.1:6379`. **Validado em 14/10/2026**: boot com MySQL 8.4/Redis 8 descartáveis, 22 migrations
+  aplicadas, `/actuator/health` = `UP`.
 - `prod`: MySQL via `DB_URL`, Flyway ligado, `ddl-auto=validate`. É o perfil usado no Docker e no E2E.
 - `test` (`src/test/resources/application-test.properties`): H2 em memória, `ddl-auto=create-drop`, Flyway desligado,
   workers desligados, secrets fictícios.
@@ -120,13 +122,15 @@ Lacuna: `.env.example` não lista `SMTP_*`, `MP_*`, `COMPROVANTE_*`, `DB_URL/DB_
 docker compose -f docker-compose.test.yml up --build   # API + MySQL 8.4 + Redis 8 + comprovante-service
 ./scripts/e2e-terminal-backend.sh    # E2E com Terminal Python real (exige ../TerminalPython/.venv)
 ```
-Executar localmente sem Docker: `SPRING_PROFILES_ACTIVE=prod` + `DB_URL`, `JWT`, `IDENTITY_HASH_SECRET`, Redis
-acessível → `./mvnw spring-boot:run` (é o que o script E2E faz, `scripts/e2e-terminal-backend.sh:75-88`).
+Executar localmente: suba MySQL/Redis com `docker compose -f docker-compose.test.yml up -d mysql redis` e rode
+`SPRING_PROFILES_ACTIVE=dev MYSQL_USER=... MYSQL_PASSWORD=... JWT=... IDENTITY_HASH_SECRET=... ./mvnw spring-boot:run`
+(Flyway migra o banco apontado; não use um banco com dados que você não queira migrar). O E2E usa `prod` + `DB_URL`
+(`scripts/e2e-terminal-backend.sh:75-88`).
 
 Compose:
-- `docker-compose.yml` (staged): só `app` + `redis` + `comprovante-service`; banco **externo** via `DB_URL`
+- `docker-compose.yml`: só `app` + `redis` + `comprovante-service`; banco **externo** via `DB_URL`
   (formato de produção/EC2).
-- `docker-compose.test.yml` (staged, novo): stack completa com MySQL local.
+- `docker-compose.test.yml`: stack completa com MySQL local.
 - `docker-compose.e2e.yml`: MySQL/Redis efêmeros em `tmpfs` para o E2E.
 
 ---
@@ -180,8 +184,8 @@ Catálogo detalhado com payloads: `24por7_contexto/api.md`; contratos com client
 Pontos de atenção da API:
 - Rotas legadas com verbo no path e mutação via `GET`: `GET /order/finalizar`, `GET /pagamento/terminal/{carrinho_id}`
   (inicia cobrança; existe também `POST` equivalente). Mudar exige coordenar com o Terminal Python.
-- `/api/testes/mercadopago/**` (`TestarWebhookMPController`) faz chamadas reais ao MP; registrado quando
-  `app.test-endpoints.enabled` (default **true**, `matchIfMissing=true`); exige ADMIN/GERENTE.
+- `/api/testes/mercadopago/**` (`TestarWebhookMPController`) faz chamadas reais ao MP; registrado só com
+  `app.test-endpoints.enabled=true` (default `false`) e nunca no profile `prod` (`@Profile("!prod")`); exige ADMIN/GERENTE.
 - OpenAPI só documenta Bearer/erros de forma completa nas rotas novas (`/admin/app-cliente/**`).
 
 ### WebSocket
@@ -272,7 +276,8 @@ Pontos de atenção da API:
 | Termos/Privacidade com aceite | **Ausente/operacional** (URLs vazias por padrão; Compose não repassa `APP247_*`) | `docker-compose*.yml`, `LegalDocumentsService` |
 | Refresh OAuth MP | **Ausente** | docs `mercado-pago.md` |
 | Checkout Pro / PIX | **Ausente** | `MercadoPagoService` não existe em `infra/service` |
-| Perfil `dev` | **Provavelmente quebrado** (sem datasource) — não executado | `application-dev.properties` |
+| Perfil `dev` | **Validado** (boot manual com MySQL/Redis descartáveis) | `application-dev.properties` |
+| Endpoints de teste MP desligados por padrão e em `prod` | **Validado** | `TestarWebhookMPControllerRegistrationTest` |
 | Recuperação de itens presos em `processing` após crash | **Parcial** | `auditoria-resumo.md` |
 
 ---
@@ -297,6 +302,9 @@ git diff --check              → apenas linha em branco extra no fim de .env.ex
 - Segunda execução com Redis inacessível (`-Dspring.data.redis.port=1`), simulando o runner do GitHub sem Redis:
   EXIT=0, 0 falhas. Contou 427 testes porque incluía `UserServiceTest.java`, um esqueleto da IDE com 12 `@Test`
   vazios (retirado do Git, mantido local). Testes reais: 415.
+- Após desligar os endpoints de teste e corrigir o perfil `dev`: `./mvnw -o clean test` → EXIT=0, 421 testes, 0 falhas,
+  0 ignorados, Flyway V1–V22 em MySQL. Destes, 420 pertencem ao estado commitado (415 + 5 de
+  `TestarWebhookMPControllerRegistrationTest`) e 1 a `RegistrationServiceTest`, que estava em edição fora desta sessão.
 - O CI (`docker-publish.yml`) agora tem o job `test` (`./mvnw test`, Java 17 Temurin, cache Maven) antes do `deploy`.
   Ainda **não executado no GitHub**.
 
@@ -307,8 +315,8 @@ git diff --check              → apenas linha em branco extra no fim de .env.ex
 - Secrets: `.env`/`.env.*` ignorados; `application*.properties` só referenciam variáveis. Documentação antiga registra
   que segredos chegaram a ser versionados no histórico → **rotação externa ainda pendente** (não verificável aqui).
 - JWT com TTL fixo de **200 h** (`TokenService`), sem issuer/audience/refresh/revogação (pendência P3).
-- `TEST_ENDPOINTS_ENABLED` default `true` fora do Compose; controller faz chamadas reais ao MP (mitigado por
-  exigir ADMIN/GERENTE).
+- Endpoints de teste MP (chamadas reais): opt-in por `TEST_ENDPOINTS_ENABLED=true`, nunca em `prod`, exigem
+  ADMIN/GERENTE. A classe ainda é compilada no jar.
 - `POST /terminal/*/credential/migrate` é público por design (valida segredo legado); manter
   `TERMINAL_LEGACY_AUTH_ENABLED=false` após a migração dos Terminais.
 - Cadastro de cliente usa `X-Forwarded-For` para rate limit (`AuthController.clientIp`), enquanto a recuperação de
@@ -330,10 +338,8 @@ Corrigidas em 14/10/2026 após verificação no código:
 | `arquitetura.md` | `/auth/register` exige gestor | Cadastro público de cliente com rate limit |
 | `arquitetura.md` | Baseline "V1–V11" | V1–V22 |
 | `contexto.md` | `MercadoPagoService` implementa PIX/Checkout Pro | Classe inexistente; só Point |
-| `contexto.md` | `application-prod.properties` desliga endpoints de teste | Só o Compose desliga; o profile `prod` não altera o default `true` |
+| `contexto.md`, `api.md`, `mercado-pago.md`, `mapa-projeto.md` | Endpoints de teste habilitados por padrão / desligados pela propriedade em `prod` | Default `false` e `@Profile("!prod")` |
 
-Ainda divergente (não é documentação de `24por7_contexto/`): o comentário de
-`src/main/resources/application-dev.properties` cita uma conexão padrão que não existe.
 `e2e-terminal-backend.md` cita "20 migrations" por registrar a execução de 28/09/2026 (correto para aquela data).
 
 `backend-pending.md` é o backlog mais confiável (itens P0 marcados como concluídos batem com o código).
@@ -349,8 +355,8 @@ Ainda divergente (não é documentação de `24por7_contexto/`): o comentário d
 2. Confirmar a primeira execução do job `test` no GitHub Actions (nunca rodou lá).
 3. **Rotação de secrets** historicamente versionados (externo).
 4. **Preflight V16** e validação do Flyway contra cópia dos bancos implantados.
-5. Corrigir perfil `dev` (ou documentar que só `prod` + env é suportado).
-6. `TEST_ENDPOINTS_ENABLED` default para `false`; remover controller de teste do jar de produção.
+5. ~~Perfil `dev`~~ e ~~endpoints de teste ligados por padrão~~ — resolvidos em 14/10/2026.
+6. Opcional: tirar `TestarWebhookMP*` do jar de produção (hoje só não é registrado).
 7. JWT: TTL configurável, 401 estruturado para token inválido, decisão sobre refresh/revogação.
 8. Refresh automático do token OAuth Mercado Pago.
 9. Recuperação automática de mensagens presas em `processing` no Redis.
@@ -358,7 +364,6 @@ Ainda divergente (não é documentação de `24por7_contexto/`): o comentário d
     comprovante unificado, paginação do catálogo App Cliente no banco, política de saldo zero/negativo.
 11. OpenAPI: documentar roles/credencial de Terminal/erros nas rotas legadas.
 12. Rotas legadas com mutação via `GET` (`/order/finalizar`, `/pagamento/terminal/{id}`) — requer coordenação com o Terminal.
-13. Corrigir o comentário de `application-dev.properties` junto com o item 5.
 
 ---
 
@@ -367,5 +372,5 @@ Ainda divergente (não é documentação de `24por7_contexto/`): o comentário d
 1. Decidir o push: backup + preflight V16 no banco implantado, plano de migração das credenciais dos Terminais,
    e então `git push origin master` (dispara testes e deploy).
 2. Acompanhar a primeira execução do workflow com o job `test`.
-3. Ajustar defaults inseguros/quebrados: `TEST_ENDPOINTS_ENABLED=false` por padrão e perfil `dev`.
-4. Depois disso, seguir `24por7_contexto/backend-pending.md` (P1 preflight V16 → P2).
+3. Seguir `24por7_contexto/backend-pending.md`: P1 preflight V16 (script de verificação de CPF/e-mail duplicados
+   antes do deploy) → P3 JWT (401 estruturado, TTL configurável) → P2.

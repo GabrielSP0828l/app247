@@ -118,7 +118,7 @@ O endpoint `/v1/orders/{id}/events` usado nos testes recebe apenas comandos de s
 
 Status externos desconhecidos não são descartados: geram `UnknownExternalStatusException`, passam por três tentativas e terminam em `mp_queue:dlq` para análise. `webhook_event` registra o recebimento antes da fila, deduplica por identidade SHA-256 de ação/Order/versão, mantém payload sanitizado e é atualizado para `QUEUED`, `PROCESSED` ou `DLQ`.
 
-Os simuladores continuam habilitados por padrão no desenvolvimento por `app.test-endpoints.enabled=true`. O profile `prod` os desabilita. Isso não substitui a revisão obrigatória antes de produção.
+Os simuladores ficam desligados por padrão (`app.test-endpoints.enabled=false`); exigem opt-in com `TEST_ENDPOINTS_ENABLED=true` e nunca são registrados no profile `prod`. Isso não substitui a revisão obrigatória antes de produção.
 
 ## Status e mapeamento
 

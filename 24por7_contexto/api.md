@@ -785,11 +785,12 @@ O contrato entre Spring e Python e a operação Docker estão detalhados em [[co
 
 # Testes e debug — habilitados no ambiente de desenvolvimento
 
-Quando `app.test-endpoints.enabled=true` (padrão atual fora do profile `prod`), os
-endpoints abaixo exigem JWT `ADMIN`/`GERENTE` e fazem chamadas reais à API usando
+Somente quando `app.test-endpoints.enabled=true` (opt-in por `TEST_ENDPOINTS_ENABLED`;
+o padrão é `false`) e fora do profile `prod`, os endpoints abaixo são registrados,
+exigem JWT `ADMIN`/`GERENTE` e fazem chamadas reais à API usando
 `MP_TEST_ACCESS_TOKEN`. São implementados por `TestarWebhookMPController`/
-`TestarWebhookMP`. O profile `prod` define a propriedade como `false`, portanto o
-controller não é registrado nesse profile.
+`TestarWebhookMP`. Com `@Profile("!prod")`, o controller nunca é registrado em `prod`,
+mesmo com a propriedade ligada.
 
 | Endpoint | Entrada | Efeito/saída `200` |
 |---|---|---|

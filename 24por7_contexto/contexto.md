@@ -65,7 +65,7 @@ Produtos e estoque administrativos são filtrados pela empresa de `EmpresaContex
 - `CompraCanceladaEvent` é consumido pelo listener de estoque para liberar/devolver a reserva uma única vez.
 - `WebhookEvent` e seu repository existem, mas a deduplicação ativa usa chaves Redis com TTL de 24 horas.
 - `QRCodeService` é um gerador genérico, enquanto o checkout usa geração própria em `CheckoutSessionService`.
-- Existem endpoints de teste do Mercado Pago que fazem chamadas reais à API configurada. São registrados quando `app.test-endpoints.enabled=true`, que é o padrão em `application.properties` (`TEST_ENDPOINTS_ENABLED`); o profile `prod` não altera esse valor, quem o desliga são os arquivos Compose (`TEST_ENDPOINTS_ENABLED="false"`). Quando registrados, exigem `ADMIN`/`GERENTE`.
+- Existem endpoints de teste do Mercado Pago que fazem chamadas reais à API configurada. Só são registrados com opt-in explícito (`TEST_ENDPOINTS_ENABLED=true`; o padrão é `false`) e nunca no profile `prod` (`@Profile("!prod")`). Quando registrados, exigem `ADMIN`/`GERENTE`.
 
 ## Configuração operacional
 

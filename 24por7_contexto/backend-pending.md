@@ -525,7 +525,7 @@ Query paginada filtra Condomínio, estoque/produto ativos, busca e categoria; to
 ## [P3] Remover endpoints de teste Mercado Pago da aplicação produtiva
 
 Status:
-INSEGURO
+CONCLUÍDO EM 14/10/2026 (registro). A classe continua compilada no jar, mas não é registrada por padrão nem no profile `prod`; `TestarWebhookMPControllerRegistrationTest` cobre ausência por padrão, com `false`, em `prod` e presença só com opt-in.
 
 Tipo:
 SECURITY / BACKEND / DOCUMENTATION
