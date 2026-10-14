@@ -54,18 +54,18 @@ O terminal não possui associação direta com empresa; seu tenant é obtido por
 
 Cada empresa possui no máximo uma `MercadoPagoConta`, exclusiva para credenciais OAuth. A identificação da maquininha física não pertence à conta: cada `Terminal` interno pode guardar seu próprio `mercadoPagoTerminalId`, único globalmente. Veja [[decisoes/002-credenciais-e-terminais-mercado-pago]].
 
-O JWT carrega `userId` e `empresaId`. O filtro compara esses claims com uma projeção de segurança que consulta o usuário e o estado atual da Empresa sem inicializar a associação JPA `LAZY`; somente então coloca o ID escalar em `EmpresaContext`, sempre limpo ao fim da requisição. As APIs administrativas permanecem públicas temporariamente na camada HTTP; quando recebem contexto, seus services usam consultas compostas por recurso e empresa, impedindo operar um ID pertencente a outro tenant.
+O JWT carrega `userId` e `empresaId`. O filtro compara esses claims com uma projeção de segurança que consulta o usuário e o estado atual da Empresa sem inicializar a associação JPA `LAZY`; somente então coloca o ID escalar em `EmpresaContext`, sempre limpo ao fim da requisição. A camada HTTP é deny-by-default (`SecurityConfig` termina em `anyRequest().denyAll()`): rotas administrativas exigem `ADMIN`/`GERENTE`, rotas operacionais exigem a credencial individual do Terminal (`ROLE_TERMINAL`) e `/app-cliente/**`/`/user/**` exigem `USER`; veja [[security/http-authorization]] e [[security/public-endpoints]]. Os services continuam usando consultas compostas por recurso e empresa, impedindo operar um ID pertencente a outro tenant.
 
 Produtos e estoque administrativos são filtrados pela empresa de `EmpresaContext`. Na criação do carrinho, a empresa é derivada do terminal e todos os produtos são validados contra ela. A área legada de usuário ainda possui operações que não seguem consultas tenant-aware em todos os caminhos.
 
 ## Capacidades presentes, mas não ligadas ao fluxo principal
 
-- `MercadoPagoService` implementa criação de PIX e preferência de Checkout Pro, mas nenhum controller chama esses métodos atualmente.
+- Não há fluxo de PIX nem de Checkout Pro: a antiga classe `MercadoPagoService` não existe mais no código; o único meio de pagamento implementado é Mercado Pago Point.
 - O webhook publica `PaymentEvent` após commit em `/topic/payment/{terminalId}` e no WebSocket nativo `/payment-socket/{terminalId}`. O terminal correto é derivado da Order e pode recuperar o estado persistido por HTTP após reconexão.
 - `CompraCanceladaEvent` é consumido pelo listener de estoque para liberar/devolver a reserva uma única vez.
 - `WebhookEvent` e seu repository existem, mas a deduplicação ativa usa chaves Redis com TTL de 24 horas.
 - `QRCodeService` é um gerador genérico, enquanto o checkout usa geração própria em `CheckoutSessionService`.
-- Existem endpoints de teste do Mercado Pago que fazem chamadas reais à API configurada. Permanecem habilitados por padrão em desenvolvimento, mas `application-prod.properties` define `app.test-endpoints.enabled=false`.
+- Existem endpoints de teste do Mercado Pago que fazem chamadas reais à API configurada. São registrados quando `app.test-endpoints.enabled=true`, que é o padrão em `application.properties` (`TEST_ENDPOINTS_ENABLED`); o profile `prod` não altera esse valor, quem o desliga são os arquivos Compose (`TEST_ENDPOINTS_ENABLED="false"`). Quando registrados, exigem `ADMIN`/`GERENTE`.
 
 ## Configuração operacional
 

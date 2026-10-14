@@ -4,6 +4,12 @@
 > 27/09/2026; para o estado executável atual consulte
 > [[security/terminal-authentication]], [[security/websocket-security]] e
 > [[security/stomp-security]].
+>
+> **Superado em 14/10/2026:** a fronteira HTTP não usa mais `anyRequest().permitAll()`;
+> `SecurityConfig` é deny-by-default com roles e credencial de Terminal
+> ([[security/http-authorization]]). A suíte atual tem 415 testes e a cadeia Flyway
+> executável é V1–V22 (as "V21–V23" abaixo pertencem à cadeia antiga). Estado atual
+> consolidado em `docs/CLAUDE_HANDOFF.md`.
 
 Este resumo consolida a auditoria e as implementações realizadas até 16 de agosto de 2026. Os detalhes e as evidências estão em [[auditoria-bugs]], [[melhorias]], [[api]], [[arquitetura-geral]] e [[mapa-projeto]].
 

@@ -42,11 +42,11 @@ Não há separação por interfaces de casos de uso ou adaptadores: controllers 
 
 ## Endpoints REST encontrados
 
-Os tipos exatos de request/response são definidos pelos DTOs. As rotas administrativas estão públicas temporariamente na camada HTTP, embora os services mantenham validações de tenant quando existe `EmpresaContext`.
+Os tipos exatos de request/response são definidos pelos DTOs. A autorização HTTP é deny-by-default em `SecurityConfig` (público, `TERMINAL`, `ADMIN`/`GERENTE` e `USER`); veja [[security/http-authorization]]. Os services mantêm validações de tenant com `EmpresaContext`.
 
 | Base | Rotas observadas |
 |---|---|
-| `/auth` | login, login administrativo, códigos; `/register` exige gestor e força papel `USER` |
+| `/auth` | login, login administrativo, códigos; `/register` é público, com rate limit, e cria conta de cliente `USER` sem vínculo de tenant |
 | `/user` | recuperação, validação e redefinição de senha; alteração de senha; pedidos por usuário; busca/atualização; foto |
 | `/onboarding` | `POST` público; `POST /condominio` é alias legado temporário |
 | `/empresas` | `GET /{empresaId}` e `PUT /{empresaId}`, limitados ao tenant |
@@ -87,11 +87,11 @@ No início Point, `PointPaymentPersistenceService` cria a tentativa local em tra
 
 ### Processamento assíncrono
 
-O agendamento é habilitado em `App247Application`. A cada dois segundos, workers consomem as filas Redis de webhook e e-mail. Em erro, o item é recolocado à esquerda da mesma fila, sem contador, atraso progressivo ou dead-letter queue. A cada minuto, todos os terminais são percorridos para marcar como `OFFLINE` os que não enviaram ping recente.
+O agendamento é habilitado em `App247Application`. A cada dois segundos, workers consomem as filas Redis de webhook e e-mail. Cada item passa por uma fila `:processing`; em erro é reprocessado até três tentativas e depois movido para `:dlq` (`mp_queue:dlq`, `<fila de e-mail>:dlq`). Não há atraso progressivo nem recuperação automática de itens presos em `:processing` após queda. A cada minuto, todos os terminais são percorridos para marcar como `OFFLINE` os que não enviaram ping recente.
 
 ## Configurações transversais
 
-- CORS aceita qualquer origem, método e header, com credenciais habilitadas.
+- CORS aceita somente os padrões de origem de `APP_CORS_ALLOWED_ORIGIN_PATTERNS` (padrão `http://localhost:*,http://127.0.0.1:*`), com credenciais habilitadas; WebSocket usa a lista separada `WEBSOCKET_ALLOWED_ORIGINS`.
 - `ObjectMapper` é bean compartilhado; `RestTemplate` possui connect/read timeout configuráveis. Ainda não há interceptors ou clients externos dedicados.
 - uploads JPG/JPEG são gravados em `uploads/`, com nome baseado em hash parcial, timestamp e extensão; `/files/**` serve esse diretório.
 - `@EnableAsync` ativa listeners assíncronos, especialmente e-mail e publicação STOMP.
@@ -103,7 +103,7 @@ O `Dockerfile` usa build multi-stage com Maven e uma imagem final JRE 17. A apli
 
 O `../docker-compose.test.yml` sobe API, MySQL 8.4, Redis 8 e o FastAPI interno `comprovante-service`. A API aguarda os health checks dos dois serviços de dados; comprovantes continuam opcionais e não impedem a API principal de iniciar. Banco, Redis e uploads usam volumes separados. As portas de MySQL e Redis são publicadas somente em `127.0.0.1`, a porta HTTP pode ser configurada por `APP_PORT` e o FastAPI usa apenas `expose: 8000`, sem publicação na internet.
 
-O MySQL usa o volume `mysql_data_v2`, intencionalmente novo por causa da substituição da cadeia histórica pela baseline V1–V11. Um volume `mysql_data` criado pelo Compose anterior não é apagado automaticamente, mas também não pode ser reutilizado diretamente com a nova cadeia Flyway.
+O MySQL usa o volume `mysql_data_v2`, intencionalmente novo por causa da substituição da cadeia histórica pela nova baseline (hoje V1–V22). Um volume `mysql_data` criado pelo Compose anterior não é apagado automaticamente, mas também não pode ser reutilizado diretamente com a nova cadeia Flyway.
 
 As credenciais e integrações são recebidas por variáveis locais. Para executar, copie `.env.example` para `.env`, substitua os valores `change-me` e use `docker compose up --build`. O arquivo `.env` é ignorado pelo Git e não entra no contexto de build.
 
