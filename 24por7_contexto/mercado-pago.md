@@ -95,6 +95,17 @@ O início Point registra marcos `[PAYMENT-BACKEND]` para request recebido, Order
 
 Na aprovação, PaymentAttempt e Order recebem `paidAt` e o Carrinho passa a `PAID`. Estados não concluídos encerram o carrinho como `CANCELED` e liberam estoque somente quando há reserva. Cada mudança aceita também anexa um `payment_event` antes da notificação pós-commit.
 
+## Reembolso integral
+
+`POST /admin/orders/{orderId}/refund` executa o reembolso integral de uma Order
+`PROCESSED`, sob autenticação `ADMIN`/`GERENTE` e isolamento pela Empresa do JWT.
+Antes da rede são persistidas intenção e chave idempotente; a chamada Point usa
+`POST /v1/orders/{id}/refund`, body vazio e credenciais OAuth da Empresa. Resultado
+incerto é consultado imediatamente e também recuperado pelo reconciliador periódico.
+Confirmação muda Order/PaymentAttempt para `REFUNDED`, libera os recursos da compra e
+estorna pontos ou cashback uma única vez. Contrato e invariantes completos em
+[[payment/point-refund]].
+
 ## Formatos externos separados
 
 O código mantém DTOs distintos para três papéis:
@@ -212,5 +223,7 @@ A recuperação de pagamentos Point está detalhada em [[payment-reconciliation]
   `POST /pagamento/terminal/order/{orderId}/cancelamento`, persiste intenção/chave
   antes do provedor e mantém `CANCELLING` em resultado incerto. Aprovação concorrente
   prevalece e cancelamento não confirmado não libera novo attempt.
+- Reembolso Point é integral e usa endpoint administrativo tenant-aware; reembolso
+  parcial não é implementado.
 
 `PT15M` é o padrão documentado da API Orders Point, mas esta aplicação configura `PT5M`; ambos são durações ISO-8601 dentro da faixa oficial de 30 segundos a 3 horas. A resposta inicial oficial é `201` com status `created`, portanto nunca equivale a aprovação. Referências consultadas: [criação de order](https://www.mercadopago.com.br/developers/pt/reference/in-person-payments/point/orders/create-order/post), [status Point](https://www.mercadopago.com.br/developers/pt/docs/mp-point/resources/status-order-transaction) e [notificações](https://www.mercadopago.com.br/developers/pt/docs/mp-point/notifications).

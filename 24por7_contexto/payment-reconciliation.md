@@ -23,8 +23,11 @@ O identificador remoto é persistido em `PaymentAttempt.providerOrderId` (com ac
 
 São reconciliáveis Orders `PENDING`, `CREATED`, `AT_TERMINAL` e `ACTION_REQUIRED`.
 O attempt pode estar `UNKNOWN` ou `CANCELLING` enquanto a Order conserva um desses
-estados. `PROCESSED`, `FAILED`, `CANCELED`, `EXPIRED` e `REFUNDED` não geram consulta
-sob demanda. O mapeamento continua centralizado em `MercadoPagoStatusMapper`:
+estados. `FAILED`, `CANCELED`, `EXPIRED` e `REFUNDED` não geram consulta sob demanda.
+`PROCESSED` normalmente é final, mas volta a ser reconciliável quando possui
+`refund_requested_at` sem `refund_confirmed_at`; isso recupera timeout ou queda no
+comando de reembolso sem repetir efeitos locais. O mapeamento continua centralizado
+em `MercadoPagoStatusMapper`:
 
 | Mercado Pago | PaymentAttempt | Terminal |
 |---|---|---|

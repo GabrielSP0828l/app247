@@ -15,6 +15,7 @@ Esta base descreve o backend conforme o código presente no repositório. O cód
 - [[app-cliente/cpf-verification]] — estados e prova de verificação do CPF.
 - [[app-cliente/historical-purchase-claim]] — claim tenant-aware e ausência de fidelidade retroativa.
 - [[app-cliente/identity-hash-secret]] — configuração, fail-fast e limite de rotação do HMAC.
+- [[app-cliente/customer-terminal-link]] — QR opaco, consumo single-use, vínculo Carrinho→Order e fidelidade.
 - [[app-cliente/integration-tests]] — matriz de integração, security, tenant e ownership.
 - [[app-cliente/p1b-audit]] — auditoria de configuração, fidelidade, recompensas e cupons antes/depois do P1-B.
 - [[app-cliente/app-client-config]] — configuração e feature flags por Empresa.
@@ -38,7 +39,19 @@ Esta base descreve o backend conforme o código presente no repositório. O cód
 - [[inventario]] — contagem física, modo cego, conflitos, idempotência e ajustes no ledger.
 - [[importacao-produtos]] — modelo XLSX, validação/preview, job assíncrono e estoque inicial.
 - [[autenticacao]] — Spring Security, JWT, papéis, recuperação de senha e contexto de empresa.
+- [[security/terminal-authentication]] — identidade operacional individual e contrato do Terminal Python.
+- [[security/terminal-device-credentials]] — geração, hash, persistência e APIs administrativas.
+- [[security/terminal-credential-rotation]] — revogação, rotação e transição do token global.
+- [[security/websocket-security]] — handshake, Principal, heartbeat e origins.
+- [[security/stomp-security]] — CONNECT, SUBSCRIBE, SEND e revalidação de sessão.
+- [[security/terminal-cross-tenant]] — isolamento entre equipamentos e tenants.
+- [[terminal-integration]] — contrato executável entre Terminal Python e backend.
 - [[terminal-python]] — distribuição do cliente, layout imutável e fronteira com o backend.
+- [[e2e-terminal-backend]] — execução real reproduzível com MySQL, Redis e Point stubado.
+- [[security/http-authorization]] — allowlist HTTP, identidades, ownership e checkout.
+- [[security/idor-protection]] — proteção cross-user, cross-terminal e cross-tenant.
+- [[security/password-recovery-security]] — anti-enumeração, rate limit, HMAC, TTL e uso único.
+- [[security/public-endpoints]] — inventário e justificativa de todas as exceções públicas.
 - [[websocket]] — endpoints WebSocket nativos, STOMP e eventos de pagamento.
 - [[terminal-lifecycle]] — estados duráveis, descoberta offline e factory reset da aplicação.
 - [[sincronizacao-produtos]] — invalidação WebSocket e sync full/incremental do catálogo por Terminal.
@@ -71,6 +84,7 @@ Esta base descreve o backend conforme o código presente no repositório. O cód
 - [[payment/coupon-payment-coordination]] — reserva, consumo e liberação transacional do cupom.
 - [[payment/payment-concurrency]] — locks, constraint de tentativa ativa e tratamento de `UNKNOWN`.
 - [[payment/terminal-payment-authorization]] — credencial interna e ownership Terminal/tenant.
+- [[payment/point-refund]] — reembolso integral Point, recuperação, estoque e reversão de fidelidade.
 - [[comprovante-compra]] — solicitação explícita e idempotente Spring Boot → FastAPI → n8n para comprovante PNG.
 
 ## Auditoria e evolução
@@ -80,8 +94,11 @@ Esta base descreve o backend conforme o código presente no repositório. O cód
 
 ## Escopo desta documentação
 
-O schema executável é definido por dezenove migrations (`V1` a `V19`). A V17
+O schema executável é definido por vinte e duas migrations (`V1` a `V22`). A V17
 adiciona o convite seguro de vínculo conta/tenant e a V18 fecha o P1-B de configuração,
 fidelidade, recompensas, cupons e constraints. A V19 fecha preço, cupom e tentativa
-de pagamento. A cadeia histórica V1–V26 foi
-removida do caminho ativo e exige recriação do banco de desenvolvimento.
+de pagamento, e a V20 adiciona credenciais individuais revogáveis/rotacionáveis de
+Terminal. A cadeia histórica V1–V26 foi
+removida do caminho ativo e exige recriação do banco de desenvolvimento. A V21
+adiciona o vínculo seguro do cliente no carrinho e tokens de identificação com hash;
+a V22 persiste intenção, idempotência e confirmação do reembolso Point.

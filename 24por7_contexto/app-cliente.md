@@ -20,7 +20,7 @@ IDs de tenant do cliente. Veja [[app-cliente/account-tenant-link]].
 | GET | `/app-cliente/compras/{id}` | Detalhe com `OrderItem` histórico; consulta combina Order, usuário e Empresa. |
 | GET | `/app-cliente/compras/{id}/comprovante` | PNG gerado para visualização, sem efeitos de envio. |
 | POST | `/app-cliente/compras/{id}/comprovante/envios` | Envio explícito por `EMAIL` ou `WHATSAPP`. |
-| POST | `/app-cliente/identificacao-tokens` | Token opaco, aleatório, descartável e válido por dois minutos. |
+| POST | `/app-cliente/identificacao-tokens` | `qrPayload` opaco, aleatório, descartável e válido por dois minutos. |
 | GET | `/app-cliente/fidelidade` | Modo, saldo e movimentos da conta. |
 | GET/POST | `/app-cliente/recompensas` e `/{id}/resgates` | Elegibilidade e resgate transacional/idempotente. |
 | GET/POST | `/app-cliente/cupons` e `/{id}/tokens` | Cupons do usuário e token de aplicação descartável. |
@@ -39,14 +39,18 @@ gerida em `/admin/app-cliente/**`; veja [[app-cliente/app-client-config]] e
 
 ## Tokens e Terminal
 
-Os tokens são 256 bits gerados por `SecureRandom`, codificados em Base64 URL-safe e
-armazenados no Redis por dois minutos. CPF, JWT, identificador do usuário e regra de
-desconto não aparecem no valor apresentado pelo QR. O consumo usa `GETDEL`.
+Os tokens de identificação são 256 bits gerados por `SecureRandom`, codificados em
+Base64 URL-safe e entregues no envelope `app247://customer-link/`. Somente SHA-256 é
+persistido no MySQL, com TTL padrão de dois minutos, invalidação da emissão anterior,
+consumo atômico e referência ao carrinho consumidor. CPF, JWT e IDs não aparecem no
+QR. Detalhes em [[app-cliente/customer-terminal-link]]. Tokens de cupom continuam no
+contrato próprio em Redis.
 
 O Terminal chama `POST /terminal/customer-link/consume` e
-`POST /terminal/coupons/apply`, autenticando-se com `X-Terminal-Token`, comparado em
-tempo constante com `TERMINAL_INTERNAL_TOKEN`. O primeiro vincula a conta à Order no
-mesmo Terminal/Condomínio/Empresa. O segundo calcula o desconto no backend sobre o
+`POST /terminal/coupons/apply`, autenticando-se com a credencial individual em
+`X-Terminal-Token`. O primeiro vincula a conta ao Carrinho aberto no
+mesmo Terminal/Condomínio/Empresa; a Order herda o usuário sem recebê-lo no request.
+O segundo calcula o desconto no backend sobre o
 total pós-promoções, valida mínimo/máximo e reserva o cupom. Aprovação muda a reserva
 para `USED`; falha ou cancelamento a libera quando ainda válida.
 

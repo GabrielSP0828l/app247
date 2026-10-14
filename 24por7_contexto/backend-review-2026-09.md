@@ -1,5 +1,10 @@
 # Revisão completa do backend — setembro de 2026
 
+> Snapshot histórico de 26/09/2026. Os achados sobre autenticação de Terminal,
+> WebSocket/STOMP e origens foram corrigidos posteriormente. Para o contrato vigente,
+> consulte `security/terminal-authentication.md`, `security/websocket-security.md` e
+> `security/stomp-security.md`.
+
 Data da auditoria: 26/09/2026.
 
 Fonte primária: código Java atual, migrations `V1` a `V16`, propriedades, Docker/Compose e testes presentes no repositório. A documentação foi usada somente para comparação. O worktree já continha alterações e arquivos não rastreados antes desta revisão; nenhum código funcional, migration ou contrato foi alterado por esta auditoria.
@@ -255,7 +260,7 @@ Migrations funcionais futuras serão necessárias para: cupom único/snapshot na
 
 ## 9. Problemas de integração
 
-- `app247.identity.hash-secret=${IDENTITY_HASH_SECRET:}` existe, mas `docker-compose.yml` não repassa `IDENTITY_HASH_SECRET`; carrinho com CPF falha fechado com 503 no Compose atual.
+- `app247.identity.hash-secret=${IDENTITY_HASH_SECRET:}` existe, mas `../docker-compose.test.yml` não repassa `IDENTITY_HASH_SECRET`; carrinho com CPF falha fechado com 503 no Compose atual.
 - O Compose não repassa URLs/versões de Termos e Privacidade; o cadastro permite seguir sem aceite quando a configuração está vazia.
 - `COMPROVANTE_INTERNAL_TOKEN` é opcional na API principal, embora obrigatório no container FastAPI; configuração divergente pode gerar falha de integração.
 - FastAPI e n8n são imagens/serviços externos ao repositório; contratos foram auditados apenas do lado Spring/Compose.

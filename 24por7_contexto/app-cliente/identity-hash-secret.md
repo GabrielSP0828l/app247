@@ -10,7 +10,7 @@ O valor precisa ter pelo menos 32 caracteres. Ausência, placeholder não resolv
 valor curto interrompe o startup com mensagem de configuração clara. O valor não é
 impresso em log, resposta HTTP ou documentação.
 
-O `docker-compose.yml` repassa a variável ao backend com validação obrigatória do
+O `../../docker-compose.test.yml` repassa a variável ao backend com validação obrigatória do
 Compose. `.env.example` contém apenas o nome vazio e instruções; o segredo real deve
 vir do secret manager ou ambiente de deploy e nunca ser versionado. Todas as réplicas
 que compartilham o banco precisam receber exatamente o mesmo valor.

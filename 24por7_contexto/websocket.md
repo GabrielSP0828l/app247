@@ -4,7 +4,10 @@
 
 Voltar para [[00-index]]. Fluxo de pagamento em [[mercado-pago]] e arquitetura geral em [[arquitetura]].
 
-O projeto habilita simultaneamente WebSocket nativo e STOMP. Ambos aceitam qualquer origem e não implementam autenticação específica no handshake ou nas mensagens.
+O projeto habilita simultaneamente WebSocket nativo e STOMP. Ambos autenticam no
+handshake a credencial individual de `X-Terminal-Token`, recebem
+`AuthenticatedTerminal` como Principal e usam origins explícitas. Veja
+[[security/websocket-security]] e [[security/stomp-security]].
 
 ## WebSocket nativo do terminal
 
@@ -19,7 +22,9 @@ Endpoint: `/terminal-socket`.
 }
 ```
 
-O `terminalId` é `String` no DTO; o handler não invoca Bean Validation explicitamente. O service busca o terminal globalmente pelo repository, converte `status` com `TerminalStatus.valueOf` e atualiza status, `update_at` e `lastPing`.
+O `terminalId` permanece no DTO por compatibilidade, mas precisa coincidir com o
+Principal. Divergência fecha a sessão antes do service. A credencial é revalidada a
+cada heartbeat, inclusive versão, revogação e estado operacional.
 
 Um job executado a cada 60 segundos percorre todos os terminais e marca como `OFFLINE` os cujo `lastPing` não nulo seja anterior a 60 segundos.
 
@@ -29,7 +34,9 @@ Endpoint registrado: `/payment-socket/*`. O cliente deve conectar usando o ident
 
 O Terminal Python usa este socket nativo, não o broker STOMP. Por isso mensagens de diagnóstico do Spring como `WebSocketSession[0 current WS...]` descrevem o broker STOMP e não provam que o Terminal esteja conectado. A presença relevante aparece nos logs `[PAYMENT-WS] socket nativo conectado/desconectado`; a ausência da sessão não impede recuperação pelo endpoint de status.
 
-Ao conectar, `PaymentWebSocketHandler` extrai esse segmento e mantém uma única `WebSocketSession` por `terminalId` em memória. Uma nova conexão para o mesmo ID substitui a anterior no mapa. Ao fechar, a sessão é removida.
+Antes do upgrade, o interceptor exige que o segmento coincida com o Terminal resolvido.
+O handler usa o Principal, não o URI, e mantém uma única `WebSocketSession` por
+Terminal. Uma nova conexão para o mesmo ID substitui a anterior no mapa.
 
 O mesmo handler envia dois tipos de evento à sessão aberta do Terminal. Para pagamento, `PaymentEvent` contém:
 
@@ -76,6 +83,10 @@ Configuração do broker:
 - broker simples em memória para destinos `/topic`;
 - prefixo de entrada da aplicação `/app`;
 - publicação de pagamento em `/topic/payment/{terminalId}`.
+- `CONNECT` reutiliza o Principal do handshake;
+- `SUBSCRIBE` só é aceito no tópico do próprio Terminal;
+- `SEND` é sempre negado, pois não existem handlers inbound;
+- outbound é revalidado para bloquear sessões rotacionadas/revogadas.
 
 `PaymentSocketService` escuta `PaymentEvent` de forma assíncrona e publica o próprio evento nesse tópico. Não há método `@MessageMapping`, portanto o projeto não define mensagens de entrada STOMP sob `/app`.
 
@@ -85,8 +96,8 @@ Os dois mecanismos de saída — WebSocket nativo e STOMP — escutam o mesmo ev
 
 ## Segurança e operação
 
-- Origens são liberadas com `*`/padrão curinga.
-- Não há associação entre a identidade autenticada e o `terminalId` informado na URL ou mensagem.
+- Origins são configuradas por `WEBSOCKET_ALLOWED_ORIGINS`; produção não possui fallback `*`.
+- URL, heartbeat e destination são vinculados à identidade individual autenticada.
 - As sessões ficam apenas na memória da instância; múltiplas réplicas não compartilham conexões.
 - O broker STOMP é o simple broker interno, sem Redis/RabbitMQ como relay.
 - Erros de desserialização ou status inválido sobem do handler; não há resposta de erro de domínio definida.

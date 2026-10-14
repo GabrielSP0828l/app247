@@ -101,7 +101,7 @@ O agendamento é habilitado em `App247Application`. A cada dois segundos, worker
 
 O `Dockerfile` usa build multi-stage com Maven e uma imagem final JRE 17. A aplicação roda como usuário sem privilégios, expõe `8080`, grava arquivos no volume `/app/uploads` e possui health check em `/actuator/health`.
 
-O `docker-compose.yml` sobe API, MySQL 8.4, Redis 8 e o FastAPI interno `comprovante-service`. A API aguarda os health checks dos dois serviços de dados; comprovantes continuam opcionais e não impedem a API principal de iniciar. Banco, Redis e uploads usam volumes separados. As portas de MySQL e Redis são publicadas somente em `127.0.0.1`, a porta HTTP pode ser configurada por `APP_PORT` e o FastAPI usa apenas `expose: 8000`, sem publicação na internet.
+O `../docker-compose.test.yml` sobe API, MySQL 8.4, Redis 8 e o FastAPI interno `comprovante-service`. A API aguarda os health checks dos dois serviços de dados; comprovantes continuam opcionais e não impedem a API principal de iniciar. Banco, Redis e uploads usam volumes separados. As portas de MySQL e Redis são publicadas somente em `127.0.0.1`, a porta HTTP pode ser configurada por `APP_PORT` e o FastAPI usa apenas `expose: 8000`, sem publicação na internet.
 
 O MySQL usa o volume `mysql_data_v2`, intencionalmente novo por causa da substituição da cadeia histórica pela baseline V1–V11. Um volume `mysql_data` criado pelo Compose anterior não é apagado automaticamente, mas também não pode ser reutilizado diretamente com a nova cadeia Flyway.
 

@@ -1,5 +1,10 @@
 # Auditoria técnica — resumo executivo
 
+> Documento histórico. A segurança dos canais do Terminal foi atualizada em
+> 27/09/2026; para o estado executável atual consulte
+> [[security/terminal-authentication]], [[security/websocket-security]] e
+> [[security/stomp-security]].
+
 Este resumo consolida a auditoria e as implementações realizadas até 16 de agosto de 2026. Os detalhes e as evidências estão em [[auditoria-bugs]], [[melhorias]], [[api]], [[arquitetura-geral]] e [[mapa-projeto]].
 
 > As rotas HTTP permanecem temporariamente desprotegidas durante a fase de desenvolvimento e testes. Essa é uma decisão temporária e não representa a configuração desejada para produção.
@@ -18,7 +23,7 @@ Nenhuma exigência de autenticação, role ou `@PreAuthorize` foi mantida na cam
 | Qualidade da API | Há rotas REST recentes e coerentes ao lado de rotas legadas com verbos no path, mutações por `GET`, respostas de entidade e endpoints de teste públicos. Consulte [[api]]. |
 | Banco de dados | V21–V23 alinham os novos campos/snapshots e produção usa `ddl-auto=validate`; o histórico antigo ainda precisa ser confrontado com os bancos implantados. |
 | Redis e jobs | Filas usam estágio `processing`, três tentativas e DLQ. Recuperação automatizada de itens presos após crash continua pendente. |
-| WebSocket | STOMP e WebSocket nativo recebem `PaymentEvent` direcionado ao terminal da Order; continuam sem autenticação efetiva e com origens amplamente permitidas. |
+| WebSocket | STOMP e WebSocket nativo usam credencial individual, Principal vinculado e origins configuráveis; sessões são revalidadas após rotação/revogação. |
 | Testes | A suíte passou com 68 testes. Usa H2 e Flyway desabilitado, portanto não valida migrations MySQL nem integrações externas reais. |
 
 ## Implementação concluída
@@ -55,7 +60,7 @@ Nenhuma exigência de autenticação, role ou `@PreAuthorize` foi mantida na cam
 1. **BUG-001 — ADIADO:** dados e alterações de usuário continuam acessíveis sem autenticação.
 2. **BUG-002 — ADIADO:** pedido, reserva e cobrança ainda podem ser iniciados anonimamente.
 3. **BUG-004 — ABERTO:** histórico Flyway implantado ainda precisa ser reconciliado.
-4. **BUG-011 — ADIADO:** WebSockets ainda permitem identidade declarada pelo cliente.
+4. **BUG-011 — CORRIGIDO:** WebSockets derivam identidade da credencial individual.
 5. **BUG-003 — PARCIAL:** arquivos foram saneados, mas segredos anteriormente expostos precisam de rotação.
 6. **BUG-005 — PARCIAL:** V21–V23 alinham o schema novo; falta validação MySQL/históricos reais.
 7. **BUG-012 — PARCIAL:** processing/retry/DLQ existem; falta recuperação automatizada após crash.
@@ -76,7 +81,7 @@ Os identificadores, severidades, classificação como bug confirmado ou risco po
 7. **P1 — MEL-008 (IMPLEMENTADA NO FLUXO ATUAL):** finalização e atualização de compra possuem fronteiras transacionais e estado coerente.
 8. **P1 — MEL-009 (PARCIAL):** processing, retry limitado e DLQ implementados; falta recuperação automática de mensagens órfãs.
 9. **P1 — MEL-010 (IMPLEMENTADA):** timeouts centralizados e falhas externas sanitizadas como `502`.
-10. **P1 — MEL-011 (ADIADA):** autenticar terminais e autorizar canais WebSocket por empresa/condomínio antes de produção.
+10. **P1 — MEL-011 (IMPLEMENTADA):** credencial individual e autorização de WebSocket/STOMP por Terminal/tenant.
 
 O plano completo, custo, benefício, arquivos afetados e padronização sugerida das rotas estão em [[melhorias]].
 
@@ -87,7 +92,7 @@ O plano completo, custo, benefício, arquivos afetados e padronização sugerida
 - O histórico Flyway pode bloquear uma atualização por checksum ou produzir schema diferente em uma instalação nova.
 - Webhooks repetidos e fora de ordem agora são contidos por versão, lock e máquina de estados; é necessário validar o fluxo contra eventos reais em homologação.
 - O processamento Redis preserva a mensagem em `processing`, mas ainda requer procedimento de recuperação após queda.
-- WebSocket sem autenticação permite observação ou emissão de eventos com identificadores conhecidos.
+- O Terminal Python ainda precisa integrar provisionamento e envio da nova credencial.
 - A suíte não prova compatibilidade com MySQL/Flyway, Redis real, SMTP ou Mercado Pago.
 - Tokens OAuth expiram e não há fluxo automático de renovação implementado.
 - Contratos migrados para DTO devem ser validados nos clientes Flutter/terminal.

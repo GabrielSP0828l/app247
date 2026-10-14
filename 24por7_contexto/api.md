@@ -1,11 +1,19 @@
 # API HTTP e canais WebSocket
 
+## Autenticação operacional do Terminal — 27/09/2026
+
+Além das rotas financeiras já documentadas, exigem a credencial individual em
+`X-Terminal-Token`: `GET /produtos/sync`, `GET /produtos/home`,
+`GET /terminais/{id}/produtos-disponiveis`, lifecycle, telemetria, comprovante e os
+upgrades `/payment-socket/{id}`, `/terminal-socket` e `/ws`. A credencial resolve o
+Terminal; UUID/body/path nunca escolhem a identidade. `/terminal/serial/{serial}`
+continua público somente para descoberta.
+
 Voltar para [[00-index]]. Arquitetura em [[arquitetura-geral]], autenticação em [[autenticacao]] e riscos em [[auditoria-bugs]].
 
-> As rotas `/admin/**` exigem JWT `ADMIN` ou `GERENTE` e `/app-cliente/**`
-> exige JWT `USER`. Rotas legadas não listadas nos matchers protegidos ainda
-> seguem temporariamente `anyRequest().permitAll()`. As rotas financeiras do
-> Terminal listadas neste documento aplicam autenticação interna no controller/service.
+> As rotas `/admin/**` exigem JWT `ADMIN` ou `GERENTE`, `/app-cliente/**` e
+> `/user/**` exigem JWT, e as rotas operacionais do Terminal exigem device
+> credential. A regra residual é `denyAll`; veja [[security/public-endpoints]].
 
 ## Convenções observadas
 
@@ -43,20 +51,21 @@ Esta é a segurança configurada atualmente em `SecurityConfig`. A tabela regist
 | `/terminais/**` | não | sim | `ADMIN` ou `GERENTE` |
 | `/mercado-pago/**`, `/mp/oauth/**` | não | sim | `ADMIN` ou `GERENTE`; somente callbacks OAuth são públicos e exigem `state` válido |
 | `/admin/app-cliente/**` | não | sim | `ADMIN` ou `GERENTE`; Empresa sempre deriva do JWT |
-| `/produtos/**`, `/estoque/**` | sim | não | nenhum |
-| `/user/recuperar`, `/user/validar`, `/user/redefinir-senha` | sim | não | nenhum |
-| demais `/user/**` | sim pela regra residual | não | nenhum |
+| CRUD gestor de `/produtos/**`, estoques e operações | não | sim | `ADMIN` ou `GERENTE` |
+| sync/home/disponibilidade do Terminal | não | não | device credential do Terminal |
+| `/user/recuperar`, `/user/validar`, `/user/redefinir-senha` | sim | não | rate limit + TTL + uso único |
+| demais `/user/**` | não | sim | self ou gestor da mesma Empresa |
 | `POST /carrinho` e rotas de pagamento/status/cancelamento do Terminal | não | não | `X-Terminal-Token` + identidade do Terminal |
-| demais `/carrinho/**`, `/checkout/**` e rotas legadas de `/order/**` | sim pela regra residual | não | nenhum |
-| `/files/**` | sim pela regra residual | não | nenhum |
-| `/api/testes/mercadopago/**` | sim pela regra residual | não | nenhum |
+| demais `/carrinho/**`, checkout operacional e `/order/**` | não | não | device credential + ownership exato |
+| checkout móvel `/checkout` e `/checkout/session` | não | não | bloqueado/legado |
+| `GET /files/**` | sim | não | leitura pública; upload exige gestor |
+| `/api/testes/mercadopago/**` | não | sim | `ADMIN` ou `GERENTE` |
 | `/app-cliente/**` | não | sim | `USER` (inclui `ADMIN` e `GERENTE`) |
-| `/terminal/customer-link/consume`, `/terminal/coupons/apply` | não | não | segredo interno `X-Terminal-Token` |
+| `/terminal/customer-link/consume`, `/terminal/coupons/apply` | não | não | device credential individual em `X-Terminal-Token` |
 | `/webhook/**`, ativação por serial e Swagger | sim | não | nenhum |
 
-Segurança ainda recomendada: restringir operações legadas de usuário ao principal,
-proteger checkout/comprovante/upload/testes externos e autenticar handshakes WebSocket.
-Veja [[backend-pending]].
+O inventário completo das exceções públicas está em [[security/public-endpoints]] e
+as decisões de ownership em [[security/http-authorization]].
 
 # App Cliente
 
@@ -118,8 +127,8 @@ negócio incluem `INVALID_LOYALTY_MODE`, `INVALID_LOYALTY_CONFIG`, `INVALID_REWA
 - Finalidade: cadastrar uma conta global `USER`, ainda sem Empresa/Condomínio.
 - Segurança HTTP: pública, com rate limit por IP/e-mail/CPF.
 - Body `ClientRegistrationRequest`: nome/sobrenome, e-mail, senha, CPF, telefone e aceites legais quando configurados; não aceita role nem IDs de tenant.
-- Resposta: `201 ClientRegistrationResponse`, com CPF `UNVERIFIED`.
-- Erros: `400` para dados/CPF inválidos, `409` para CPF/e-mail já existentes e `429` para excesso de tentativas.
+- Resposta: `201 ClientRegistrationResponse` com `user`, `cpfVerificationStatus = UNVERIFIED`, `condominio = null`, `requiresLogin = true` e o estado dos documentos legais. O cadastro não emite JWT; o cliente segue para `/auth/login`.
+- Erros estruturados: `400 INVALID_REGISTRATION_DATA`/`INVALID_CPF`, `409 CPF_ALREADY_REGISTERED`/`EMAIL_ALREADY_REGISTERED` e `429 REGISTRATION_RATE_LIMITED`.
 - Efeitos: senha BCrypt, insert em `users` com `cpf_verified_at = NULL` e `UserCreatedEvent`.
 - Tenant: permanece nulo até o consumo de convite autorizado.
 
@@ -163,74 +172,75 @@ negócio incluem `INVALID_LOYALTY_MODE`, `INVALID_LOYALTY_CONFIG`, `INVALID_REWA
 
 ## POST /user/recuperar
 
-- Controller/service: `UserController.recuperar` → `UserService.recoveryPassword`.
+- Controller/service: `UserController.recuperar` → `PasswordRecoveryService.request`.
 - Segurança: pública.
 - Body `PasswordRecovery`: `cpf` com 11 dígitos.
 - Resposta: `202 { "message": "Se o CPF existir, enviamos instruções para recuperação." }`.
-- Efeitos: cria código de seis dígitos, chave `recovery:{cpf}` por 15 minutos e item em `recovery_queue`.
-- Risco: CPF inexistente gera exceção, contrariando a mensagem neutra.
+- Efeitos: normaliza CPF, aplica limite por hash de CPF+origem e, quando existe conta,
+  armazena somente HMAC do código aleatório com TTL.
+- Anti-enumeração: conta existente e inexistente têm status e corpo equivalentes.
 
 ## POST /user/validar
 
-- Controller/service: `UserController.validar` → `UserService.verificarCode`.
+- Controller/service: `UserController.validar` → `PasswordRecoveryService.validateCode`.
 - Segurança: pública.
 - Body `ValidateCodeRequest`: `code`, `cpf`; email/nome são opcionais para esta operação.
-- Resposta: `200 { "token": "uuid" }`.
-- Efeitos: consome `recovery:{cpf}` e cria `reset:{cpf}` por 15 minutos.
-- Erros pretendidos: `400` código inválido, `410` expirado; o wrapper genérico pode convertê-los em `500`.
+- Resposta: `200 { "token": "valor-opaco" }`.
+- Efeitos: consome o código atomicamente e armazena somente HMAC de token aleatório
+  de 32 bytes; novo token invalida o anterior.
+- Erros: `400 PASSWORD_RESET_INVALID`; `429 PASSWORD_RESET_RATE_LIMITED`.
 
 ## POST /user/redefinir-senha
 
-- Controller/service: `UserController.redefinirSenha` → `UserService.novaSenha`.
+- Controller/service: `UserController.redefinirSenha` → `PasswordRecoveryService.resetPassword`.
 - Segurança: pública.
-- Body `ResetPasswordRequest`: `cpf`, `token`, `novaSenha`; o DTO não possui Bean Validation.
-- Resposta: `200 true`.
-- Efeitos: atualiza hash BCrypt e remove `reset:{cpf}`.
-- Erros pretendidos: token inválido/expirado; podem virar `500` pelo encapsulamento.
+- Body `ResetPasswordRequest`: CPF válido, token obrigatório e `novaSenha` de 8–100 caracteres.
+- Resposta: `200` com mensagem.
+- Efeitos: token é consumido atomicamente uma única vez e a senha é gravada com BCrypt.
+- Erros: `400 PASSWORD_RESET_INVALID`; `429 PASSWORD_RESET_RATE_LIMITED`.
 
 ## POST /user/alterar-senha
 
 - Controller/service: `UserController.alterarSenha` → `UserService.alterarSenha`.
-- Segurança real: pública pela regra residual.
+- Segurança: JWT; `userId` deve ser o principal autenticado.
 - Body `ChangePasswordRequest`: `userId`, `oldPassword`, `newPassword`, sem validações declaradas.
 - Resposta: `200 { "message": "Senha alterada com sucesso" }`.
 - Efeitos: atualiza senha do ID informado se a senha antiga corresponder.
-- Tenant: não valida principal nem empresa.
+- Tenant/ownership: estritamente self-service.
 
 ## GET /user/{userId}/orders
 
 - Controller/service: `UserController.getOrdersByUser` → `UserService.getOrderByUser`.
-- Segurança: `X-Terminal-Token`; `terminalId` do body precisa corresponder a Terminal
-  ativo, Condomínio ativo e Empresa operacional.
+- Segurança: JWT; self ou `ADMIN`/`GERENTE` da mesma Empresa.
 - Path: `userId`; query: `page`, `size`, `sort`.
 - Resposta: `Page<OrderDTO>` com ID, status, valores e data.
-- Tenant: consulta apenas por usuário, sem principal/empresa.
+- Tenant: query inclui usuário e Empresa; alvo não autorizado retorna 404.
 
 ## GET /user/{userId}
 
 - Controller/service: `UserController.getUser` → `UserService.getUser`.
-- Segurança real: pública.
+- Segurança: JWT; self ou `ADMIN`/`GERENTE` da mesma Empresa.
 - Resposta: `UserResponseDTO`, sem senha e sem relações JPA.
 - Erro: `404` se inexistente.
-- Tenant: busca global por ID.
+- Tenant: lookup e autorização incluem a Empresa.
 
 ## POST /user/foto?id={userId}
 
 - Controller/service: `UserController.salvar` → `UserService.salvarFoto`.
-- Segurança real: pública.
+- Segurança: JWT; somente o próprio usuário.
 - Entrada multipart: part `file`; query `id`.
 - Resposta: `200 true`.
 - Efeitos: grava JPG/JPEG em `uploads/` e altera `fotoPerfil` do ID informado.
-- Tenant: não valida principal/empresa.
+- Tenant: identidade vem do principal.
 
 ## PUT /user/{id}
 
 - Controller/service: `UserController.update` → `UserService.atualizarUsuario`.
-- Segurança real: pública.
+- Segurança: JWT; self ou gestor da mesma Empresa.
 - Body `UserUpdate`: nome, sobrenome, email, telefone, ativo e condominioId, todos opcionais.
 - Resposta: `200` com mensagem.
-- Efeitos: atualiza `users`; condomínio, quando informado, exige `EmpresaContext`, que não existe em chamada anônima.
-- Tenant: sem condomínio no body, um ID arbitrário pode ser alterado globalmente.
+- Efeitos: self altera perfil; somente gestor pode alterar `ativo`/`condominioId`.
+- Tenant: o condomínio e o usuário alvo devem pertencer à Empresa autenticada.
 
 # Onboarding, empresas e condomínios
 
@@ -503,7 +513,7 @@ Todos esses endpoints derivam a Empresa de `EmpresaContext`; nenhum aceita `empr
 ## POST /carrinho
 
 - Controller/service: `CarrinhoController.addCarinho` → `CarrinhoService.save`.
-- Segurança real: pública.
+- Segurança: device credential do `terminalId` informado; o ID não é autoridade.
 - Body `CarrinhoRequest`: `terminalId` e lista `items [{ productId, quantity, receivedWeight, expectedUnitPrice?, codigoBarras? }]`. Quando presente, `codigoBarras` precisa pertencer ao mesmo Produto/Empresa e é congelado no OrderItem; clientes antigos podem omiti-lo.
 - Validação: `terminalId` obrigatório; lista não nula/não vazia; item e `productId` obrigatórios; quantidade inteira positiva.
 - Resposta: `200 CarrinhoResponseDTO` com itens snapshot.
@@ -512,47 +522,44 @@ Todos esses endpoints derivam a Empresa de `EmpresaContext`; nenhum aceita `empr
 
 ## GET /carrinho/{id}
 
-- Segurança real: pública.
-- Resposta: `200 CarrinhoResponseDTO`; busca global pelo UUID, sem tenant.
+- Segurança: device credential; compara o Terminal exato persistido no carrinho.
+- Resposta: `200 CarrinhoResponseDTO`; Terminal alheio recebe 403.
 
 ## GET /checkout/carrinho?idCarrinho={id}
 
-- Segurança real: pública.
+- Segurança: device credential e ownership do carrinho.
 - Efeito: cria sessão Redis de 15 minutos para o carrinho.
 - Resposta `CheckoutSessionResponseDTO` com sessionId, carrinhoId, terminalId, URL `app24por7://session/{id}`, status e expiração.
 
 ## GET /checkout/session?idSession={id}
 
-- Segurança: pública.
-- Resposta: `CarrinhoResponseDTO` da sessão.
-- Efeito colateral: imprime o ID da sessão no console.
+- Segurança: rota legada bloqueada por `SecurityConfig`.
 
 ## GET /checkout/qrcode?id={sessionId}
 
-- Segurança: pública.
+- Segurança: device credential; a sessão deve pertencer ao Terminal autenticado.
 - Resposta: `200 image/png` contendo `app247://session/{id}`.
 - Divergência: o DTO textual usa esquema `app24por7://`, enquanto o QR usa `app247://`.
 
 ## GET /checkout?id={userId}&session={sessionId}
 
-- Segurança: pública.
-- Finalidade: associar userId à sessão.
-- Resposta: `200 true`.
-- Efeito: renova o TTL para 15 minutos ao salvar; não valida existência, tenant ou autenticação do usuário.
+- Segurança: rota legada bloqueada por `SecurityConfig`.
+- Motivo: o App Cliente não compra pelo celular e `userId` enviado pelo cliente não
+  pode determinar ownership.
 
 # Pedidos e pagamentos
 
 ## GET /order/finalizar?carrinho_id={id}
 
 - Controller/service: `OrderController.order` → `OrderService.createOrder`.
-- Segurança real: pública.
+- Segurança: device credential + ownership do carrinho persistido.
 - Resposta: `OrderDetailResponse` com resumo do pagamento e snapshot do carrinho.
 - Efeitos: exige carrinho `OPEN`, muda para `READY_FOR_PAYMENT`, cria uma Order e publica reserva síncrona de estoque.
 - Concorrência: service faz consulta prévia e a baseline impõe `UNIQUE(carrinho_id)` em `orders`.
 
 ## GET /order?carrinho_id={id}
 
-- Segurança real: pública.
+- Segurança: device credential + ownership da Order persistida.
 - Comportamento real: apesar do nome do query param, o valor é passado a `getOrder` como ID da Order, não do carrinho.
 - Resposta: `OrderDetailResponse`; a consulta continua global enquanto não houver `EmpresaContext`.
 
@@ -633,7 +640,8 @@ Resposta `PaymentStatusResponse`: `type`, `orderId`, `cartId`, `paymentId`, `pay
 ## POST /comprovante
 
 - Finalidade: solicitação explícita, após a compra, de geração e envio do comprovante.
-- Segurança HTTP: pública temporariamente, como os endpoints do Terminal; `pedidoId` precisa pertencer exatamente ao `terminalId` informado.
+- Segurança HTTP: device credential; `pedidoId` e `terminalId` devem pertencer
+  exatamente ao Terminal autenticado.
 - Pré-condições: `Order.status=PROCESSED`, tentativa mais recente `PaymentAttempt.status=PROCESSED`, `paidAt` existente e snapshot histórico completo.
 - Request:
 
@@ -713,18 +721,19 @@ O contrato entre Spring e Python e a operação Docker estão detalhados em [[co
 
 ## GET /terminal/{terminalId}/bootstrap
 
-- Segurança HTTP: pública como os contratos atuais do equipamento.
+- Segurança HTTP: device credential; aceita Terminal em estado de lifecycle não
+  operacional para informar `DISABLED/RESET_REQUIRED`, mas rejeita credencial revogada.
 - Resposta: `ACTIVE`, `PAYMENT_NOT_CONFIGURED`, `DISABLED`, `RESET_REQUIRED` ou `UNACTIVATED`, com `paymentConfigured`, motivo e timestamp quando aplicável.
-- Regra: confirmação autoritativa usada pelo Terminal; ID inexistente retorna `RESET_REQUIRED` no corpo 200.
+- Regra: confirmação autoritativa usada pelo Terminal; o path deve corresponder à credencial.
 
 ## POST /terminal/{terminalId}/factory-reset/started
 
-- Segurança HTTP: pública como os contratos atuais do equipamento.
+- Segurança HTTP: device credential correspondente ao path.
 - Resposta: `204`; confirmação idempotente do início.
 
 ## POST /terminal/{terminalId}/factory-reset/completed
 
-- Segurança HTTP: pública como os contratos atuais do equipamento.
+- Segurança HTTP: device credential correspondente ao path; a conclusão revoga a credencial.
 - Resposta: `204`; muda `RESET_REQUIRED` para `UNACTIVATED` e libera a identidade de ativação antiga.
 
 ## GET /mp/oauth/terminal/{idUser}
@@ -739,11 +748,25 @@ O contrato entre Spring e Python e a operação Docker estão detalhados em [[co
 - Efeitos: registra/deduplica `webhook_event` no MySQL, mantém chave Redis curta, faz push em `mp_queue` e atualiza o inbox para `QUEUED/PROCESSED/DLQ`.
 - Processamento posterior: `PaymentWorker` → `PagamentoService.atualizarPagamento` → `PaymentStateTransitionService` → PaymentAttempt/PaymentEvent/Order/estoque.
 
+## POST /admin/orders/{orderId}/refund
+
+- Segurança: JWT `ADMIN` ou `GERENTE`; Empresa derivada do principal.
+- Entrada: somente `orderId` no path; não recebe valor nem empresa no body.
+- Regra: reembolso integral de Order/PaymentAttempt `PROCESSED`, com ownership
+  tenant-aware e lock pessimista.
+- Saída `200`: `orderId`, `status=refunded`, `amount`, `requestedAt`,
+  `confirmedAt` e `confirmed=true`.
+- Erros: `401/403`, `404 PURCHASE_NOT_FOUND`, `409 REFUND_NOT_ALLOWED` e `502`
+  sanitizado quando o resultado externo ainda não pôde ser confirmado.
+- Idempotência: retry de Order já `REFUNDED` retorna sucesso e não repete os efeitos.
+- Efeitos: Order/PaymentAttempt `REFUNDED`, estoque/cupom liberados, evento ao
+  Terminal, auditoria e `REFUND_REVERSAL` único no ledger de fidelidade.
+
 # Arquivos e documentação
 
 ## POST /files/upload
 
-- Segurança real: pública.
+- Segurança: JWT `ADMIN` ou `GERENTE`.
 - Entrada: multipart parameter `file`, extensão `.jpg`/`.jpeg` e conteúdo decodificável como imagem; limite global 30 MB.
 - Resposta: URL textual relativa `/files/{nome}`.
 - Efeito: grava arquivo no filesystem local.
@@ -757,12 +780,16 @@ O contrato entre Spring e Python e a operação Docker estão detalhados em [[co
 ## GET /
 
 - Controller: `DocController`.
-- Segurança real: pública pela regra residual.
+- Segurança real: pública por matcher explícito.
 - Resposta: redirect para `/swagger-ui/index.html`.
 
 # Testes e debug — habilitados no ambiente de desenvolvimento
 
-Quando `app.test-endpoints.enabled=true` (padrão atual fora do profile `prod`), todos os endpoints abaixo são públicos pela regra residual e fazem chamadas reais à API usando `MP_TEST_ACCESS_TOKEN`. São implementados por `TestarWebhookMPController`/`TestarWebhookMP`. O profile `prod` define a propriedade como `false`, portanto o controller não é registrado nesse profile.
+Quando `app.test-endpoints.enabled=true` (padrão atual fora do profile `prod`), os
+endpoints abaixo exigem JWT `ADMIN`/`GERENTE` e fazem chamadas reais à API usando
+`MP_TEST_ACCESS_TOKEN`. São implementados por `TestarWebhookMPController`/
+`TestarWebhookMP`. O profile `prod` define a propriedade como `false`, portanto o
+controller não é registrado nesse profile.
 
 | Endpoint | Entrada | Efeito/saída `200` |
 |---|---|---|
@@ -810,22 +837,36 @@ Retorna as 100 ocorrências mais recentes, ativas e resolvidas, sem apagar o his
 
 ## /terminal-socket
 
-- WebSocket nativo, origem `*`, sem autenticação.
+- WebSocket nativo autenticado no upgrade por `X-Terminal-Token`; origem vem de
+  `WEBSOCKET_ALLOWED_ORIGINS`.
 - Entrada: `{ "terminalId": "uuid", "status": "ONLINE|OFFLINE|MANUTENCAO" }`.
-- Efeito: atualiza `status`, `update_at` e `lastPing` por busca global do terminal, com transação e `saveAndFlush`.
+- Efeito: somente atualiza o Terminal do Principal. Payload divergente fecha com
+  policy violation sem persistência; versão/revogação/estado são revalidados.
 - Saída após persistência: `{ "type":"HEARTBEAT_ACK", "terminalId":"uuid", "status":"ONLINE", "lastPing":"ISO_LOCAL_DATE_TIME" }`.
 
 ## /payment-socket/{terminalId}
 
-- WebSocket nativo, origem `*`, sem autenticação.
+- WebSocket nativo autenticado; Principal e path precisam identificar o mesmo Terminal.
 - Saída após commit: `type`, `terminalId`, `orderId`, `transactionId`, `status`, `mercadoPagoStatus`, `statusDetail`, `message` e o campo legado `paid`.
 - O fluxo ativo de webhook publica somente quando o estado muda e seleciona a sessão pelo terminal do carrinho.
 
 ## /ws e /topic/payment/{terminalId}
 
-- Handshake STOMP sem autenticação, origem por padrão curinga.
+- Handshake STOMP usa a mesma device credential e Principal do Terminal.
 - Broker simples em memória; não há `@MessageMapping` de entrada.
 - `PaymentSocketService` publica o mesmo `PaymentEvent` após commit em `/topic/payment/{terminalId}`.
+- `SUBSCRIBE` só aceita o tópico do próprio Terminal; todo `SEND` é negado.
+
+## Credenciais administrativas do Terminal
+
+- `POST /terminais/{id}/credential`: cria e retorna a credencial uma única vez;
+- `POST /terminais/{id}/credential/rotate`: invalida a anterior e retorna a nova;
+- `DELETE /terminais/{id}/credential`: revoga individualmente;
+- `POST /terminal/{id}/credential/migrate`: única rota do token global, disponível
+  somente com `TERMINAL_LEGACY_AUTH_ENABLED=true` e apenas antes da primeira credencial.
+
+As três primeiras exigem JWT `ADMIN/GERENTE` e validam o tenant. A resposta bruta não
+existe em GET/listagens.
 
 ## POST /pagamento/terminal/order/{orderId}/cancelamento
 

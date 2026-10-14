@@ -5,7 +5,7 @@ Backlog derivado da auditoria de 26/09/2026. Os itens não autorizam implementa�
 ## [P0] Proteger Order e pagamento operacional com credencial de Terminal
 
 Status:
-PARCIAL — fluxo financeiro do Terminal protegido no P1-C
+CONCLUÍDO EM 28/09/2026
 
 Tipo:
 SECURITY / API / BACKEND
@@ -16,10 +16,10 @@ cancelamento agora exigem `X-Terminal-Token`, carregam o Terminal persistido e v
 Terminal/Condomínio/Empresa/Carrinho/Order. Testes reais cobrem ausência de credencial,
 concorrência e cross-tenant.
 
-Pendente:
-`GET /carrinho/{id}`, `GET /order/finalizar`, `GET /order` e `/checkout/**` continuam
-sob a regra residual pública. Não fazem o POST remoto nesta implementação, mas ainda
-expõem/criam estado operacional por UUID.
+Resultado:
+`GET /carrinho/{id}`, `GET /order/finalizar`, `GET /order`, checkout operacional e
+comprovante exigem a credencial individual e validam o Terminal exato persistido no
+recurso. A1 não acessa A2 mesmo na mesma Empresa; cross-tenant falha.
 
 Impacto:
 Leitura, criação, reconciliação ou cancelamento de compra/pagamento por cliente não autorizado; exposição de dados financeiros.
@@ -41,13 +41,15 @@ identidade de Terminal ou com o JWT do cliente, incluindo testes negativos por r
 ## [P0] Proteger GET /user/{userId}/orders e demais operações de usuário contra IDOR
 
 Status:
-INSEGURO
+CONCLUÍDO EM 28/09/2026
 
 Tipo:
 SECURITY / API / BACKEND
 
-Problema:
-`GET /user/{userId}`, `GET /user/{userId}/orders`, `PUT /user/{id}`, `POST /user/foto` e `POST /user/alterar-senha` aceitam IDs arbitrários e estão públicos.
+Resultado:
+As rotas exigem JWT. Self-service compara o ID com o principal; `ADMIN`/`GERENTE`
+somente acessam usuário da mesma Empresa. Foto e alteração de senha são estritamente
+próprias, e histórico consulta por usuário + Empresa.
 
 Impacto:
 Vazamento de CPF/e-mail/telefone/compras e alteração de conta/foto por outro usuário.
@@ -67,13 +69,17 @@ Operações de cliente derivam o user do JWT; operações de gestor exigem role 
 ## [P0] Autenticar /terminal-socket, /payment-socket/{terminalId} e /ws
 
 Status:
-INSEGURO
+CONCLUÍDO EM 27/09/2026
 
 Tipo:
 SECURITY / INTEGRATION / BACKEND
 
-Problema:
-Handshakes aceitam qualquer origem e nenhuma credencial. Heartbeat aceita `terminalId` do payload; uma conexão pode substituir a sessão legítima ou assinar tópico de outro Terminal.
+Resultado:
+Handshakes resolvem credencial individual para `AuthenticatedTerminal`; payment socket
+confere o path, heartbeat confere payload, STOMP limita subscription ao tópico próprio
+e nega SEND, e origins são configuráveis sem curinga produtivo. Versão/revogação/
+estado são revalidados também em sessões abertas. Testes cobrem ausência, inválida,
+revogada, mesma Empresa/outro Terminal e outra Empresa.
 
 Impacto:
 Falsificação de presença, interceptação de status de pagamento e reset, negação de serviço ao Terminal real.
@@ -85,22 +91,21 @@ Arquivos relacionados:
 - `infra/websocket/PaymentWebSocketHandler.java`
 - `infra/service/PaymentSocketService.java`
 
-Dependências:
-Credencial/identidade de Terminal e política de origens.
-
-Critério de aceite:
-Handshake autentica o Terminal; identidade autenticada coincide com URL/payload/tópico; conexão cross-tenant é recusada; origem é configurável; testes de handshake, assinatura e substituição maliciosa existem.
+Evidências: [[security/terminal-authentication]], [[security/websocket-security]],
+[[security/stomp-security]] e [[security/terminal-cross-tenant]].
 
 ## [P0] Impedir vínculo arbitrário em GET /checkout?id={userId}&session={sessionId}
 
 Status:
-INSEGURO
+CONCLUÍDO EM 28/09/2026
 
 Tipo:
 SECURITY / API / BACKEND
 
-Problema:
-O endpoint público associa um userId informado pelo cliente à sessão sem autenticação, ownership ou tenant.
+Resultado:
+O checkout móvel legado e a leitura pública da sessão foram bloqueados. O produto não
+permite compra pelo App Cliente; `userId` de query/body não altera mais ownership.
+As rotas necessárias ao Terminal usam sua identidade autenticada.
 
 Impacto:
 Sequestro da identidade de compra e associação da compra à conta errada.
@@ -119,13 +124,14 @@ O endpoint é removido após migração ou deriva o usuário autenticado e valid
 ## [P0] Proteger POST /comprovante contra envio por ID adivinhado
 
 Status:
-INSEGURO
+CONCLUÍDO EM 28/09/2026
 
 Tipo:
 SECURITY / API / INTEGRATION
 
-Problema:
-`POST /comprovante` é público e aceita `terminalId`, `pedidoId`, canal e destinatário. A combinação Order/Terminal não prova autorização do solicitante.
+Resultado:
+`POST /comprovante` exige device credential, compara o Terminal exato e aceita somente
+Order aprovada. O App Cliente usa endpoint JWT separado com ownership da compra.
 
 Impacto:
 Envio externo indevido, abuso do n8n/canal e exposição de comprovante.
@@ -144,13 +150,15 @@ A rota exige credencial de Terminal correspondente ou é removida; o fluxo clien
 ## [P0] Limitar tentativas em POST /user/validar e normalizar CPF em toda recuperação
 
 Status:
-INSEGURO
+CONCLUÍDO EM 28/09/2026
 
 Tipo:
 SECURITY / BACKEND / TEST
 
-Problema:
-Código de seis dígitos pode ser testado sem limite durante 15 minutos. `recoveryPassword` normaliza CPF, mas validação/reset usam o valor recebido diretamente para chaves e busca.
+Resultado:
+CPF é normalizado em todas as etapas; código e token são armazenados por HMAC com TTL,
+consumidos atomicamente, têm uso único e rate limit configurável por identidade +
+origem. Solicitação existente/inexistente possui resposta externa equivalente.
 
 Impacto:
 Brute force de recuperação e inconsistência com CPF mascarado.
@@ -177,13 +185,14 @@ testes HTTP reais com MySQL/Flyway são as evidências. Detalhes em
 [[payment/coupon-payment-coordination]], [[payment/payment-concurrency]] e
 [[payment/terminal-payment-authorization]].
 
-O Terminal Python ainda precisa receber/provisionar `TERMINAL_INTERNAL_TOKEN` e enviar
-os headers documentados antes do rollout conjunto; ele não foi alterado neste bloco.
+O Terminal Python ainda precisa receber, armazenar e enviar a credencial individual
+documentada antes do rollout conjunto; ele não foi alterado neste bloco. O token
+global ficou restrito à migração explicitamente habilitada.
 
 ## [P0] Estornar pontos e cashback de Order reembolsada
 
 Status:
-AUSENTE
+CONCLUÍDO EM 30/09/2026
 
 Tipo:
 BACKEND / DATABASE / TEST
@@ -200,8 +209,11 @@ Arquivos relacionados:
 - `infra/service/PaymentStateTransitionService.java`
 - `domain/model/appclient/LoyaltyMovement.java`
 
-Dependências:
-Política para saldo já gasto e estorno parcial/futuro.
+Implementação:
+O reembolso integral Point persiste intenção e chave idempotente antes da chamada
+externa, reconcilia resultado incerto e cria `REFUND_REVERSAL` com chave
+`refund:{orderId}`. Saldo já gasto pode ficar negativo e créditos futuros compensam
+a dívida. Reembolso parcial permanece fora do contrato Point desta aplicação.
 
 Critério de aceite:
 Refund cria `ESTORNO` idempotente; não duplica em webhook/reconciliação; saldo e ledger fecham; caso de saldo já consumido tem regra explícita e testes.
@@ -376,7 +388,7 @@ Pendente operacional/legal e ausência de trilha de aceite efetiva.
 Arquivos relacionados:
 - `infra/service/LegalDocumentsService.java`
 - `src/main/resources/application.properties`
-- `docker-compose.yml`
+- `../docker-compose.test.yml`
 - `domain/model/auth/User.java`
 
 Dependências:
@@ -425,7 +437,7 @@ Contrato, idempotência, autenticação interna e comportamento de timeout podem
 
 Arquivos relacionados:
 - `infra/service/comprovante/*`
-- `docker-compose.yml`
+- `../docker-compose.test.yml`
 
 Dependências:
 Ambiente controlado, destinatário de teste e acesso ao workflow.
@@ -527,7 +539,7 @@ Ambiente mal configurado pode expor operações externas públicas.
 Arquivos relacionados:
 - `infra/controller/TestarWebhookMPController.java`
 - `src/main/resources/application.properties`
-- `docker-compose.yml`
+- `../docker-compose.test.yml`
 
 Dependências:
 Alternativa de teste isolada.

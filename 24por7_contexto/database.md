@@ -59,6 +59,9 @@ Tabelas que repetem `empresa_id` o fazem como redundância controlada. Pais exp�
 | `V17__secure_account_tenant_link.sql` | convite autorizado de vínculo conta/Empresa/Condomínio |
 | `V18__app_client_management_and_financial_constraints.sql` | configuração 1:1 por Empresa, recompensas administráveis e constraints tenant/financeiras |
 | `V19__order_price_payment_attempt_and_terminal_authorization.sql` | snapshot financeiro da Order, vínculo de cupom e tentativa ativa única |
+| `V20__terminal_device_credentials.sql` | hash, versão, revogação e rotação individual da credencial do Terminal |
+| `V21__customer_terminal_link.sql` | usuário autoritativo no carrinho e tokens QR com hash, TTL e consumo single-use |
+| `V22__point_refund_and_loyalty_reversal.sql` | intenção, chave idempotente e confirmação do reembolso Point |
 
 ### Dados do App Cliente
 
@@ -97,6 +100,14 @@ Identidade autenticável. Uma conta App Cliente pode começar com Empresa e Cond
 nulos; depois do convite autorizado, pertence a exatamente uma Empresa e a no máximo
 um Condomínio da mesma Empresa. A FK composta impede vínculo cross-tenant. CPF e
 e-mail permanecem globais por serem usados na autenticação sem seletor de tenant.
+
+### `terminal`
+
+Além do vínculo com Condomínio, lifecycle, presença e Point, conserva somente o hash
+SHA-256 da credencial individual, sua versão e datas de criação/revogação. O hash é
+único e a versão precisa ser positiva quando existe credencial. A credencial bruta
+nunca é persistida e Terminal continua derivando tenant por
+`Terminal -> Condominio -> Empresa`.
 
 ### `customer_identity` e `tenant_link_invitation`
 
@@ -252,7 +263,7 @@ Registro append-only de ações administrativas e excepcionais, com ator, entida
 Esta baseline é destrutiva e não é compatível por checksum ou estrutura com V1–V26. Um ambiente antigo deve ter o banco recriado antes de subir a aplicação. Não se deve apagar apenas `flyway_schema_history` mantendo as tabelas antigas: o procedimento correto é criar um schema vazio, executar Flyway e iniciar com `ddl-auto=validate`.
 
 O teste `DatabaseBaselineMySqlTest` automatiza
-`MySQL vazio → 19 migrations → Hibernate validate`, além das constraints
+`MySQL vazio → 22 migrations → Hibernate validate`, além das constraints
 de tenant, convite conta/tenant, SKU/barcode, estoque central/condomínio, estoque
 fracionado negativo, snapshots, inventário, múltiplas tentativas, exclusividade ativa
 Mercado Pago, persistência de leads comerciais e invariantes P1-B de configuração,
