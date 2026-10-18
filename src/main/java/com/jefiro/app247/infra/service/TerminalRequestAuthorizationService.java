@@ -8,9 +8,7 @@ import com.jefiro.app247.domain.model.terminal.Terminal;
 import com.jefiro.app247.infra.exception.ApiBusinessException;
 import com.jefiro.app247.infra.repository.TerminalRepository;
 import com.jefiro.app247.infra.security.AuthenticatedTerminal;
-import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,16 +28,6 @@ public class TerminalRequestAuthorizationService {
     private static final int CREDENTIAL_BYTES = 32;
 
     @Autowired private TerminalRepository terminals;
-    @Value("${app.terminal.internal-token:}") private String internalToken;
-    @Value("${app.terminal.legacy-auth-enabled:false}") private boolean legacyAuthEnabled;
-
-    @PostConstruct
-    void validateLegacyConfiguration() {
-        if (legacyAuthEnabled && (internalToken == null || internalToken.isBlank())) {
-            throw new IllegalStateException(
-                    "TERMINAL_INTERNAL_TOKEN é obrigatório quando terminal legacy auth está habilitado");
-        }
-    }
 
     @Transactional(readOnly = true)
     public Terminal authorize(String credential, String terminalId) {
@@ -123,19 +111,6 @@ public class TerminalRequestAuthorizationService {
         if (terminal.getDeviceCredentialHash() == null || terminal.getDeviceCredentialRevokedAt() != null) return;
         terminal.setDeviceCredentialRevokedAt(Instant.now());
         terminals.save(terminal);
-    }
-
-    @Transactional
-    public TerminalCredentialResponse migrateLegacy(String legacyCredential, String terminalId) {
-        authenticateLegacyProvisioning(legacyCredential);
-        Terminal terminal = terminals.findByIdForCredentialUpdate(terminalId).orElseThrow(() ->
-                new ApiBusinessException(HttpStatus.NOT_FOUND, "TERMINAL_NOT_FOUND", "Terminal não encontrado"));
-        if (terminal.getDeviceCredentialHash() != null) {
-            throw new ApiBusinessException(HttpStatus.CONFLICT, "TERMINAL_ALREADY_MIGRATED",
-                    "Terminal já possui credencial individual");
-        }
-        requireOperational(terminal);
-        return issue(terminal);
     }
 
     public void requireCartOwnership(Terminal terminal, Carrinho cart) {
@@ -226,12 +201,6 @@ public class TerminalRequestAuthorizationService {
         terminal.setDeviceCredentialRevokedAt(null);
         terminals.saveAndFlush(terminal);
         return new TerminalCredentialResponse(terminal.getIdTerminal(), raw, nextVersion, now);
-    }
-
-    private void authenticateLegacyProvisioning(String credential) {
-        if (!legacyAuthEnabled || credential == null || internalToken == null
-                || !MessageDigest.isEqual(internalToken.getBytes(StandardCharsets.UTF_8),
-                credential.getBytes(StandardCharsets.UTF_8))) throw unauthorized();
     }
 
     private AuthenticatedTerminal principal(Terminal terminal) {

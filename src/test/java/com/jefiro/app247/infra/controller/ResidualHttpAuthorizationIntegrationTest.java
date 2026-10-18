@@ -1,9 +1,15 @@
 package com.jefiro.app247.infra.controller;
 
+import com.jefiro.app247.domain.model.Condominio;
 import com.jefiro.app247.domain.model.Empresa;
 import com.jefiro.app247.domain.model.auth.RoleUser;
 import com.jefiro.app247.domain.model.auth.User;
+import com.jefiro.app247.domain.model.enum_type.TerminalLifecycleState;
+import com.jefiro.app247.domain.model.enum_type.TerminalStatus;
+import com.jefiro.app247.domain.model.terminal.Terminal;
+import com.jefiro.app247.infra.repository.CondominioRepository;
 import com.jefiro.app247.infra.repository.EmpresaRepository;
+import com.jefiro.app247.infra.repository.TerminalRepository;
 import com.jefiro.app247.infra.repository.UserRepository;
 import com.jefiro.app247.infra.service.TokenService;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +38,8 @@ class ResidualHttpAuthorizationIntegrationTest {
     @Autowired EmpresaRepository empresas;
     @Autowired UserRepository users;
     @Autowired TokenService tokens;
+    @Autowired CondominioRepository condominios;
+    @Autowired TerminalRepository terminals;
     private User userA;
     private User userA2;
     private User adminA;
@@ -101,6 +109,46 @@ class ResidualHttpAuthorizationIntegrationTest {
         mvc.perform(get("/rota-nao-classificada")).andExpect(status().isUnauthorized());
         mvc.perform(post("/files/upload")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/testes/mercadopago/listar"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void consultaPublicaPorSerialExpoeSomenteDadosDeAtivacao() throws Exception {
+        Empresa empresa = empresa("Serial");
+        empresa.setAtivo(true);
+        Condominio condominio = new Condominio();
+        condominio.setNome("Condominio Serial");
+        condominio.setEmpresa(empresa);
+        condominio.setAtivo(true);
+        condominio = condominios.saveAndFlush(condominio);
+        Terminal terminal = new Terminal();
+        terminal.setCondominio(condominio);
+        terminal.setNome("Terminal Serial");
+        terminal.setCodigo("terminal-serial-" + UUID.randomUUID());
+        terminal.setSerialNumber("SERIAL-" + UUID.randomUUID());
+        terminal.setAtivo(true);
+        terminal.setStatus(TerminalStatus.OFFLINE);
+        terminal.setLifecycleState(TerminalLifecycleState.ACTIVE);
+        terminal = terminals.saveAndFlush(terminal);
+
+        mvc.perform(get("/terminal/serial/{serial}", terminal.getSerialNumber()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.terminalId").value(terminal.getIdTerminal()))
+                .andExpect(jsonPath("$.serialNumber").value(terminal.getSerialNumber()))
+                .andExpect(jsonPath("$.ativo").value(true))
+                .andExpect(jsonPath("$.activated").value(true))
+                .andExpect(jsonPath("$.nome").doesNotExist())
+                .andExpect(jsonPath("$.codigo").doesNotExist())
+                .andExpect(jsonPath("$.status").doesNotExist())
+                .andExpect(jsonPath("$.condominioId").doesNotExist())
+                .andExpect(jsonPath("$.condominioNome").doesNotExist())
+                .andExpect(jsonPath("$.lifecycleState").doesNotExist());
+    }
+
+    @Test
+    void migracaoComTokenGlobalLegadoFoiRemovida() throws Exception {
+        mvc.perform(post("/terminal/{id}/credential/migrate", "qualquer")
+                        .header("X-Terminal-Token", "test-only-terminal-legacy-secret"))
                 .andExpect(status().isUnauthorized());
     }
 

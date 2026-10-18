@@ -48,8 +48,6 @@ public class SecurityConfig {
                         ).permitAll()
                         .requestMatchers(HttpMethod.POST, "/onboarding", "/condominio").permitAll()
                         .requestMatchers(HttpMethod.GET, "/files/**").permitAll()
-                        // Transição controlada: o próprio endpoint valida o segredo legado e o terminal alvo.
-                        .requestMatchers(HttpMethod.POST, "/terminal/*/credential/migrate").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/register", "/auth/login", "/auth/login/admin",
                                 "/auth/send-code", "/auth/validate-code").permitAll()
                         .requestMatchers(HttpMethod.POST, "/user/recuperar", "/user/validar",

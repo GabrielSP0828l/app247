@@ -94,14 +94,6 @@ public class TerminalController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/terminal/{terminalId}/credential/migrate")
-    public ResponseEntity<TerminalCredentialResponse> migrateLegacyCredential(
-            @PathVariable String terminalId,
-            @RequestHeader(value = "X-Terminal-Token", required = false) String legacyCredential) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(terminalAuthorization.migrateLegacy(legacyCredential, terminalId));
-    }
-
     @GetMapping("/terminal/{terminalId}/bootstrap")
     public ResponseEntity<TerminalBootstrapResponse> bootstrap(
             @PathVariable String terminalId,

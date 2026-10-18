@@ -7,7 +7,7 @@ lifecycle/factory reset, envio de comprovante, `/payment-socket/{terminalId}`,
 `/terminal-socket` e `/ws`. Seu valor operacional é a credencial individual do
 equipamento, armazenada somente por hash e sujeita a rotação/revogação própria.
 
-`TERMINAL_INTERNAL_TOKEN` é apenas migração explícita e nunca fallback operacional.
+`TERMINAL_INTERNAL_TOKEN` e a migração legada foram removidos em 18/10/2026.
 Detalhes em [[../security/terminal-authentication]].
 
 ## Credencial e identidade
@@ -48,9 +48,9 @@ token OAuth, chave idempotente do provider ou payload sensível.
 
 ## Configuração e rollout
 
-`application.properties` mantém `TERMINAL_INTERNAL_TOKEN` somente para migração e
-`TERMINAL_LEGACY_AUTH_ENABLED=false` por padrão. O Compose exige origins WebSocket
-explícitas, mas não exige o segredo global quando a migração está desligada.
+`TERMINAL_INTERNAL_TOKEN`/`TERMINAL_LEGACY_AUTH_ENABLED` não existem mais em
+`application.properties`, Compose ou `.env.example`. O Compose exige origins WebSocket
+explícitas.
 
 O cliente em `/home/jefiro/Documentos/projetos/TerminalPython` consultado durante a
 auditoria ainda não recebe/armazena a device credential nem a envia nos canais.

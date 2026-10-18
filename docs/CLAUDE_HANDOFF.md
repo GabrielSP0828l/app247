@@ -96,8 +96,8 @@ Obrigatórias para subir: `JWT` (`api.secret.token`), `IDENTITY_HASH_SECRET` (�
 
 Integrações: `MP_CLIENT_ID`, `MP_CLIENT_SECRET`, `MP_OAUTH_REDIRECT_URL`, `MP_WEBHOOK_SECRET`, `MP_WEBHOOK_URL`,
 `MP_API_BASE_URL` (default API oficial; o E2E aponta para stub), `MP_POINT_EXPIRATION_TIME` (default `PT5M`),
-`SMTP_*`, `COMPROVANTE_SERVICE_URL`/`COMPROVANTE_INTERNAL_TOKEN`/timeouts, `TERMINAL_INTERNAL_TOKEN` +
-`TERMINAL_LEGACY_AUTH_ENABLED` (só migração legada), `APP_CORS_ALLOWED_ORIGIN_PATTERNS`,
+`SMTP_*`, `COMPROVANTE_SERVICE_URL`/`COMPROVANTE_INTERNAL_TOKEN`/timeouts, `APP_CORS_ALLOWED_ORIGIN_PATTERNS`,
+`app.terminal.anomaly.*` (alerta de origem da credencial de Terminal; padrão ligado),
 `PASSWORD_RECOVERY_*`, `TENANT_LINK_INVITATION_TTL`, `APP247_TERMS_*`/`APP247_PRIVACY_*`,
 `TEST_ENDPOINTS_ENABLED` (default `false`; ignorado no profile `prod`),
 `PAYMENT_RECONCILIATION_*`, `PRODUCT_IMPORT_*`, `CUSTOMER_LINK_*`.
@@ -175,7 +175,7 @@ Catálogo detalhado com payloads: `24por7_contexto/api.md`; contratos com client
 
 | Acesso | Rotas |
 |---|---|
-| Público | `GET /`, `/error`, `/actuator/health`, `/terminal/health`, `/terminal/serial/*`, `/webhook/mercadopago` (HMAC próprio), `/mercado-pago/oauth/callback`, `/mp/oauth/callback`, `/public/leads`, `/public/app-config`, Swagger/OpenAPI, `POST /onboarding` e alias `POST /condominio`, `GET /files/**`, `POST /terminal/*/credential/migrate` (valida segredo legado no endpoint), `POST /auth/{register,login,login/admin,send-code,validate-code}`, `POST /user/{recuperar,validar,redefinir-senha}` |
+| Público | `GET /`, `/error`, `/actuator/health`, `/terminal/health`, `/terminal/serial/*`, `/webhook/mercadopago` (HMAC próprio), `/mercado-pago/oauth/callback`, `/mp/oauth/callback`, `/public/leads`, `/public/app-config`, Swagger/OpenAPI, `POST /onboarding` e alias `POST /condominio`, `GET /files/**`, `POST /auth/{register,login,login/admin,send-code,validate-code}`, `POST /user/{recuperar,validar,redefinir-senha}` |
 | Negado sempre | demais `/auth/**`, `GET /checkout` (vínculo legado por `userId`), `/checkout/session` |
 | `TERMINAL` | `/terminal-socket`, `/payment-socket/**`, `/ws/**`, `/produtos/sync`, `/produtos/home`, `/terminais/*/produtos-disponiveis`, `/terminal/telemetry`, `/terminal/*/bootstrap`, `/terminal/*/factory-reset/**`, `/terminal/customer-link/consume`, `/terminal/coupons/apply`, `/carrinho/**`, `/order/**`, `/pagamento/terminal/**`, `/checkout/carrinho`, `/checkout/qrcode`, `/comprovante/**` |
 | `ADMIN`/`GERENTE` | `/admin/**` (dashboard, alertas, pagamentos, vendas, atividade, **refund** `POST /admin/orders/{orderId}/refund`, App Cliente config/fidelidade/recompensas, convites de vínculo), `/empresas/**`, `/condominios/**` (incl. estoque por condomínio), `/terminais/**` (CRUD, credencial, vínculo Point, telemetria/monitoramento), `/produtos/**` (CRUD, importação XLSX), `/promocoes/**`, `/estoque-empresa/**`, `/estoque/geral`, `/transferencias-estoque/**`, `/inventarios/**`, `/planogramas/**`, `/mercado-pago/**`, `/mp/oauth/{mercadopago,terminal}/**`, `POST /files/upload`, `/api/testes/mercadopago/**` |
@@ -317,8 +317,10 @@ git diff --check              → apenas linha em branco extra no fim de .env.ex
 - JWT com TTL fixo de **200 h** (`TokenService`), sem issuer/audience/refresh/revogação (pendência P3).
 - Endpoints de teste MP (chamadas reais): opt-in por `TEST_ENDPOINTS_ENABLED=true`, nunca em `prod`, exigem
   ADMIN/GERENTE. A classe ainda é compilada no jar.
-- `POST /terminal/*/credential/migrate` é público por design (valida segredo legado); manter
-  `TERMINAL_LEGACY_AUTH_ENABLED=false` após a migração dos Terminais.
+- Migração legada de credencial (`/terminal/*/credential/migrate`, `TERMINAL_INTERNAL_TOKEN`) removida em
+  18/10/2026; `GET /terminal/serial/*` passou a expor só `terminalId`, `serialNumber`, `ativo`, `activated`.
+- Uso da mesma credencial de Terminal a partir de origens diferentes gera `audit_log`
+  `TERMINAL_CREDENTIAL_ORIGIN_CHANGED` (`TerminalCredentialAnomalyService`); só alerta, não bloqueia.
 - Cadastro de cliente usa `X-Forwarded-For` para rate limit (`AuthController.clientIp`), enquanto a recuperação de
   senha usa só `getRemoteAddr()` — inconsistência; `X-Forwarded-For` é falsificável sem proxy confiável.
 - `GET /files/**` é público (imagens de produto/foto).
@@ -350,8 +352,9 @@ Corrigidas em 14/10/2026 após verificação no código:
 ## 12. Pendências e débitos técnicos (priorizados)
 
 1. **Push e deploy controlados** (P0 operacional): commits locais prontos; antes do push, backup do banco
-   implantado + preflight V16, e confirmar que os Terminais em campo já usam credencial individual (ou habilitar
-   temporariamente `TERMINAL_LEGACY_AUTH_ENABLED` para a migração).
+   implantado + preflight V16, e confirmar que os Terminais em campo já usam credencial individual
+   (`SELECT id FROM terminal WHERE ativo = 1 AND device_credential_hash IS NULL;` deve vir vazio — a
+   migração legada foi removida em 18/10/2026; Terminal sem credencial precisa de provisionamento manual).
 2. Confirmar a primeira execução do job `test` no GitHub Actions (nunca rodou lá).
 3. **Rotação de secrets** historicamente versionados (externo).
 4. **Preflight V16** e validação do Flyway contra cópia dos bancos implantados.

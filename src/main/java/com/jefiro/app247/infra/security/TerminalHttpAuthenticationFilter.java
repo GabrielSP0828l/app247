@@ -1,5 +1,6 @@
 package com.jefiro.app247.infra.security;
 
+import com.jefiro.app247.infra.service.TerminalCredentialAnomalyService;
 import com.jefiro.app247.infra.service.TerminalRequestAuthorizationService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -20,6 +21,7 @@ import java.util.List;
 public class TerminalHttpAuthenticationFilter extends OncePerRequestFilter {
     public static final String FAILURE_CODE = "TERMINAL_AUTH_INVALID";
     @Autowired private TerminalRequestAuthorizationService authorization;
+    @Autowired private TerminalCredentialAnomalyService anomalies;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -48,6 +50,7 @@ public class TerminalHttpAuthenticationFilter extends OncePerRequestFilter {
             SecurityContextHolder.getContext().setAuthentication(
                     new UsernamePasswordAuthenticationToken(principal, null,
                             List.of(new SimpleGrantedAuthority("ROLE_TERMINAL"))));
+            anomalies.observe(principal, request.getRemoteAddr());
         } catch (RuntimeException invalid) {
             request.setAttribute(SecurityFilter.FAILURE_CODE_ATTRIBUTE,
                     credential == null || credential.isBlank() ? "AUTH_REQUIRED" : FAILURE_CODE);

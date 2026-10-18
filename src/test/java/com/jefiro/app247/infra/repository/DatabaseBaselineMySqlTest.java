@@ -44,7 +44,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.flyway.enabled=true",
-        "app.terminal.internal-token=test-terminal-token",
         "payment.reconciliation.initial-delay-ms=3600000",
         "terminal.telemetry.offline-check-delay-ms=3600000"
 })

@@ -12,9 +12,11 @@ Terminal, Empresa e Condomínio. `terminalId` em path/header/body é validado, n
 é prova de identidade.
 
 O Terminal Python persiste o segredo fora do JSON/SQLite/Git em arquivo local
-`0600`, com instalação/rotação atômica. `TERMINAL_INTERNAL_TOKEN` é enviado
-somente a `POST /terminal/{terminalId}/credential/migrate` quando a migração está
-explicitamente habilitada nos dois lados. Não existe fallback após 401.
+`0600`, com instalação/rotação atômica. A migração por `TERMINAL_INTERNAL_TOKEN`
+foi removida do backend em 18/10/2026; o código de migração ainda presente no
+Terminal Python passa a receber 401. Não existe fallback após 401.
+`GET /terminal/serial/{serial}` devolve só `terminalId`, `serialNumber`, `ativo` e
+`activated`; nome, código e Condomínio gravados em `terminal.json` ficam `null`.
 
 ## Matriz operacional
 

@@ -13,10 +13,9 @@ a versão, limpa revogação, faz `saveAndFlush` e só então devolve A2. A1 dei
 encontrada e sessões com a versão anterior são rejeitadas. Não existe janela com duas
 credenciais válidas.
 
-## Migração do segredo global
+## Migração do segredo global (removida)
 
-O modo legado nasce desligado. Quando explicitamente ligado, um Terminal ainda sem
-hash usa `TERMINAL_INTERNAL_TOKEN` somente para obter sua primeira credencial em
-`POST /terminal/{id}/credential/migrate`. Repetição retorna conflito; o token global
-não é fallback para operação diária. Depois de migrar a frota, desligar
-`TERMINAL_LEGACY_AUTH_ENABLED` e rotacionar/remover o segredo global do ambiente.
+A migração por `TERMINAL_INTERNAL_TOKEN` foi removida em 18/10/2026. Terminal sem
+credencial recebe uma pelo fluxo administrativo (`POST /terminais/{id}/credential`) e
+instalação local. Alertas de uso da mesma credencial em origens diferentes ficam em
+`audit_log` (`TERMINAL_CREDENTIAL_ORIGIN_CHANGED`); ver [[terminal-authentication]].

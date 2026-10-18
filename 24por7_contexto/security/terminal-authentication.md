@@ -37,17 +37,38 @@ está desativado. As confirmações de factory reset exigem explicitamente
 `RESET_REQUIRED`; as demais operações exigem Terminal plenamente operacional.
 Ao concluir factory reset, a credencial é revogada.
 
-## Configuração legada
+## Configuração legada (removida)
 
-`TERMINAL_INTERNAL_TOKEN` é segredo compartilhado somente de migração. Ele é aceito
-exclusivamente em `POST /terminal/{terminalId}/credential/migrate`, e apenas quando
-`TERMINAL_LEGACY_AUTH_ENABLED=true`. Se o modo estiver habilitado sem segredo, o
-startup falha. O token global nunca autentica HTTP diário, WebSocket ou STOMP.
+Desde 18/10/2026 não existe mais `TERMINAL_INTERNAL_TOKEN`, `TERMINAL_LEGACY_AUTH_ENABLED`
+nem `POST /terminal/{terminalId}/credential/migrate` (a rota cai no `denyAll` → 401).
+A única forma de obter credencial é o gestor emitir em `POST /terminais/{id}/credential`
+e o operador instalar no equipamento (`--install-device-credential`, via stdin).
+Antes do deploy, confirmar que nenhum Terminal ativo está sem credencial:
+`SELECT id FROM terminal WHERE ativo = 1 AND device_credential_hash IS NULL;`.
+
+## Detecção de uso anômalo
+
+`TerminalCredentialAnomalyService` é chamado pelo `TerminalHttpAuthenticationFilter`
+(HTTP e handshakes WebSocket) após autenticação válida. Guarda no Redis a última
+origem (`request.getRemoteAddr()`) por Terminal por `app.terminal.anomaly.origin-window`
+(padrão `PT10M`). Se a mesma credencial aparecer de outra origem dentro da janela,
+registra `WARN [TERMINAL-ANOMALY]` e `audit_log` com ação
+`TERMINAL_CREDENTIAL_ORIGIN_CHANGED` (metadata: origens, `credentialVersion`), no
+máximo uma vez por `app.terminal.anomaly.alert-cooldown` (padrão `PT1H`). Nunca
+bloqueia a requisição; falha de Redis/auditoria é ignorada. Desligável com
+`app.terminal.anomaly.enabled=false`.
+
+Limitações: troca legítima de IP do provedor gera um alerta; enquanto a entrada for
+ngrok/porta exposta, `X-Forwarded-For` é aceito do cliente (`forward-headers-strategy=framework`)
+e a origem pode ser forjada. Com nginx sobrescrevendo `X-Forwarded-For`, a origem fica
+confiável. Não há alerta por horário porque não existe configuração de horário de
+funcionamento por Condomínio. Resposta a um alerta: rotacionar ou revogar a credencial
+em `/terminais/{id}/credential`.
 
 ## Contrato implementado no Terminal Python
 
-1. Durante migração controlada, chama uma única vez a rota `credential/migrate` com
-   o token legado em `X-Terminal-Token`.
+1. Recebe a credencial instalada pelo operador (a chamada a `credential/migrate`
+   que o cliente ainda contém agora recebe 401 e cai no estado de aguardar credencial).
 2. Persiste o campo `credential` retornado em arquivo local restrito (`0600` no
    Linux); ele não poderá ser consultado novamente.
 3. Envia essa credencial no header `X-Terminal-Token` em todo HTTP e handshake

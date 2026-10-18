@@ -16,7 +16,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.UUID;
 
@@ -124,27 +123,6 @@ class TerminalDeviceCredentialIntegrationTest {
                 .isInstanceOf(ApiBusinessException.class)
                 .extracting(error -> ((ApiBusinessException) error).getStatusCode().value())
                 .isEqualTo(403);
-    }
-
-    @Test
-    void tokenGlobalServeSomenteParaMigracaoExplicitamenteHabilitada() {
-        ReflectionTestUtils.setField(authorization, "legacyAuthEnabled", true);
-        ReflectionTestUtils.setField(authorization, "internalToken", "legacy-test-secret");
-        try {
-            String individual = authorization.migrateLegacy(
-                    "legacy-test-secret", terminalA1.getIdTerminal()).credential();
-
-            assertThat(authorization.authenticateChannel(individual).terminalId())
-                    .isEqualTo(terminalA1.getIdTerminal());
-            assertThatThrownBy(() -> authorization.authorize(
-                    "legacy-test-secret", terminalA1.getIdTerminal()))
-                    .isInstanceOf(ApiBusinessException.class)
-                    .extracting(error -> ((ApiBusinessException) error).getStatusCode().value())
-                    .isEqualTo(401);
-        } finally {
-            ReflectionTestUtils.setField(authorization, "legacyAuthEnabled", false);
-            ReflectionTestUtils.setField(authorization, "internalToken", "test-only-terminal-legacy-secret");
-        }
     }
 
     private Empresa empresa(String suffix) {
