@@ -1,0 +1,154 @@
+package com.jefiro.app247.apresentacao.unitario;
+
+import com.jefiro.app247.domain.model.*;
+import com.jefiro.app247.domain.model.enum_type.TipoMovimentacaoEstoque;
+import com.jefiro.app247.domain.model.enum_type.UnidadeMedida;
+import com.jefiro.app247.domain.model.terminal.Terminal;
+import com.jefiro.app247.infra.repository.EstoqueCondominioRepository;
+import com.jefiro.app247.infra.repository.MovimentacaoEstoqueRepository;
+import com.jefiro.app247.infra.service.EstoqueService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.math.BigDecimal;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
+
+/**
+ * Teste unitário do fluxo de venda no {@link EstoqueService}: o checkout reserva
+ * (baixa) o estoque do condomínio, o pagamento aprovado confirma a venda e o
+ * cancelamento devolve as unidades. As movimentações gravadas são "lembradas" em
+ * memória para simular a idempotência do repositório.
+ */
+@ExtendWith(MockitoExtension.class)
+class VendaEstoqueUnitTest {
+
+    @Mock EstoqueCondominioRepository estoqueRepository;
+    @Mock MovimentacaoEstoqueRepository movimentacaoRepository;
+    @InjectMocks EstoqueService estoqueService;
+
+    private final Set<String> chavesGravadas = new HashSet<>();
+    private EstoqueCondominio estoque;
+    private Order pedido;
+
+    @BeforeEach
+    void cenario() {
+        // Estoque inicial: 10 unidades; pedido de 2 unidades do mesmo produto.
+        Fixture f = fixture("10.000", "2.000");
+        estoque = f.estoque();
+        pedido = f.order();
+        lenient().when(estoqueRepository.findForUpdate("cond-a", "prod-a")).thenReturn(Optional.of(estoque));
+        lenient().when(movimentacaoRepository.existsByChaveIdempotencia(anyString()))
+                .thenAnswer(inv -> chavesGravadas.contains(inv.<String>getArgument(0)));
+        lenient().when(movimentacaoRepository.save(any(MovimentacaoEstoque.class))).thenAnswer(inv -> {
+            MovimentacaoEstoque m = inv.getArgument(0);
+            chavesGravadas.add(m.getChaveIdempotencia());
+            return m;
+        });
+    }
+
+    @Test
+    @DisplayName("Venda: reserva baixa o estoque e a confirmação do pagamento mantém a baixa")
+    void vendaBaixaEstoque() {
+        estoqueService.reservar(pedido);
+        assertThat(estoque.getQuantidade()).isEqualByComparingTo("8.000");
+
+        estoqueService.confirmarVenda(pedido);
+        assertThat(estoque.getQuantidade()).isEqualByComparingTo("8.000");
+
+        ArgumentCaptor<MovimentacaoEstoque> captor = ArgumentCaptor.forClass(MovimentacaoEstoque.class);
+        verify(movimentacaoRepository, times(2)).save(captor.capture());
+        assertThat(captor.getAllValues()).extracting(MovimentacaoEstoque::getTipo)
+                .containsExactly(TipoMovimentacaoEstoque.RESERVA, TipoMovimentacaoEstoque.VENDA);
+        MovimentacaoEstoque reserva = captor.getAllValues().get(0);
+        assertThat(reserva.getQuantidadeAnterior()).isEqualByComparingTo("10.000");
+        assertThat(reserva.getQuantidadePosterior()).isEqualByComparingTo("8.000");
+    }
+
+    @Test
+    @DisplayName("Cancelamento da compra devolve as unidades ao estoque")
+    void cancelamentoDevolveEstoque() {
+        estoqueService.reservar(pedido);
+        estoqueService.liberar(pedido, true);
+
+        assertThat(estoque.getQuantidade()).isEqualByComparingTo("10.000");
+    }
+
+    @Test
+    @DisplayName("Confirmação repetida do pagamento não baixa o estoque duas vezes")
+    void confirmacaoDuplicadaNaoBaixaDuasVezes() {
+        estoqueService.reservar(pedido);
+        estoqueService.reservar(pedido);
+        estoqueService.confirmarVenda(pedido);
+        estoqueService.confirmarVenda(pedido);
+
+        assertThat(estoque.getQuantidade()).isEqualByComparingTo("8.000");
+    }
+
+    @Test
+    @DisplayName("Venda de produto não disponível no condomínio é recusada")
+    void produtoNaoDisponivel() {
+        when(estoqueRepository.findForUpdate("cond-a", "prod-a")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> estoqueService.reservar(pedido))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Produto não disponível neste condomínio");
+    }
+
+    private static Fixture fixture(String saldo, String quantidadePedida) {
+        Empresa empresa = Empresa.builder().id("empresa-a").build();
+        Condominio condominio = new Condominio();
+        condominio.setIdCondominio("cond-a");
+        condominio.setEmpresa(empresa);
+        Terminal terminal = new Terminal();
+        terminal.setIdTerminal("terminal-a");
+        terminal.setCondominio(condominio);
+        Produto produto = new Produto();
+        produto.setIdProduto("prod-a");
+        produto.setEmpresa(empresa);
+        produto.setCodigoInterno("SKU-A");
+        CartItem item = new CartItem();
+        item.setIdItem("item-a");
+        item.setProduto(produto);
+        item.setQuantity(new BigDecimal(quantidadePedida));
+        item.setName("Refrigerante");
+        item.setUnitPrice(new BigDecimal("5.000000"));
+        item.setOriginalPrice(new BigDecimal("5.000000"));
+        item.setCalculatedDiscount(BigDecimal.ZERO.setScale(6));
+        item.setCalculatedSubtotal(new BigDecimal("10.000000"));
+        item.setUnidadeMedida(UnidadeMedida.UN);
+        Carrinho carrinho = new Carrinho();
+        carrinho.setTerminal(terminal);
+        carrinho.setItems(List.of(item));
+        item.setCarrinho(carrinho);
+        Order order = new Order();
+        order.setIdOrder("order-a");
+        order.setEmpresa(empresa);
+        order.setCondominio(condominio);
+        order.setTerminal(terminal);
+        order.setCarrinho(carrinho);
+        OrderItem orderItem = OrderItem.snapshot(order, item);
+        orderItem.setId("item-a");
+        order.setItems(List.of(orderItem));
+        EstoqueCondominio estoque = new EstoqueCondominio();
+        estoque.setCondominio(condominio);
+        estoque.setProduto(produto);
+        estoque.setQuantidade(new BigDecimal(saldo));
+        return new Fixture(order, estoque);
+    }
+
+    private record Fixture(Order order, EstoqueCondominio estoque) {}
+}
