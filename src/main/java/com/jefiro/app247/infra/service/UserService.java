@@ -19,6 +19,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -33,6 +34,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.NoSuchElementException;
 
 @Service
@@ -167,34 +169,61 @@ public class UserService {
         if (!passwordEncoder.matches(request.oldPassword(), user.getSenha())) {
             throw new InvalidPasswordException("Senha atual incorreta");
         }
+        if (request.newPassword().equals(request.oldPassword())) {
+            throw new ApiBusinessException(HttpStatus.BAD_REQUEST, "PASSWORD_UNCHANGED",
+                    "A nova senha deve ser diferente da atual");
+        }
         user.setSenha(passwordEncoder.encode(request.newPassword()));
 
         repository.save(user);
     }
 
+    /**
+     * Gestor edita usuários do próprio tenant, mas nunca o e-mail de terceiros: e-mail é o
+     * destino da recuperação de senha, e trocá-lo equivale a tomar a conta. GERENTE não
+     * altera ADMIN, e {@code ativo} só vale para terceiros (ignorado na própria conta).
+     */
     public void atualizarUsuario(User actor, User user, UserUpdate request) {
+        boolean self = actor == user
+                || (actor.getIdUser() != null && actor.getIdUser().equals(user.getIdUser()));
+        boolean manager = actor.getRole() == RoleUser.ADMIN || actor.getRole() == RoleUser.GERENTE;
+
+        if (!self && actor.getRole() == RoleUser.GERENTE && user.getRole() == RoleUser.ADMIN) {
+            throw new ApiBusinessException(HttpStatus.FORBIDDEN, "USER_MANAGEMENT_FORBIDDEN",
+                    "Gerente não pode alterar um administrador");
+        }
+
+        String email = request.email() == null ? null : request.email().trim().toLowerCase(Locale.ROOT);
+        boolean emailChanged = email != null && !email.equalsIgnoreCase(user.getEmail());
+        if (emailChanged && !self) {
+            throw new ApiBusinessException(HttpStatus.FORBIDDEN, "EMAIL_CHANGE_SELF_ONLY",
+                    "Somente o próprio usuário pode alterar o e-mail");
+        }
+        if (emailChanged && repository.existsByEmailIgnoreCase(email)) {
+            throw new ApiBusinessException(HttpStatus.CONFLICT, "EMAIL_ALREADY_REGISTERED",
+                    "Já existe uma conta cadastrada com este e-mail.");
+        }
 
         if (request.nome() != null) {
-            user.setNome(request.nome());
+            user.setNome(request.nome().trim());
         }
 
         if (request.sobrenome() != null) {
-            user.setSobrenome(request.sobrenome());
+            user.setSobrenome(request.sobrenome().trim());
         }
 
-        if (request.email() != null) {
-            user.setEmail(request.email());
+        if (emailChanged) {
+            user.setEmail(email);
+            user.setEmailVerificado(false);
         }
 
         if (request.telefone() != null) {
-            user.setTelefone(request.telefone());
+            user.setTelefone(request.telefone().replaceAll("\\D", ""));
         }
 
-        boolean manager = actor.getRole() == RoleUser.ADMIN || actor.getRole() == RoleUser.GERENTE;
-        if (manager && request.ativo() != null) {
+        if (manager && !self && request.ativo() != null) {
             user.setAtivo(request.ativo());
         }
-
 
         if (manager && request.condominioId() != null) {
             Condominio condominio = findById(request.condominioId());

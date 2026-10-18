@@ -8,9 +8,9 @@ comprovante, WebSockets nativos e STOMP exigem `X-Terminal-Token`. O valor opera
 Empresa e Condomínio. A ativação por serial permanece pública como descoberta, mas
 não devolve credencial nem autoriza operação. Veja [[security/terminal-authentication]].
 
-`TERMINAL_INTERNAL_TOKEN` deixou de autenticar operação diária. Ele existe somente na
-rota de migração e apenas quando `TERMINAL_LEGACY_AUTH_ENABLED=true`; revogação e
-rotação diárias são individuais.
+`TERMINAL_INTERNAL_TOKEN` e a rota de migração foram removidos em 18/10/2026; revogação
+e rotação são individuais. Uso da mesma credencial de origens diferentes gera alerta em
+`audit_log` (ver [[security/terminal-authentication]]).
 
 Voltar para [[00-index]]. Contexto multi-tenant em [[contexto]] e persistência em [[banco-de-dados]].
 
@@ -114,11 +114,16 @@ Redis, expiram e são consumidos atomicamente uma única vez. Limites configurá
 combinam hash de CPF normalizado e origem e retornam 429. A senha final usa BCrypt.
 Detalhes em [[security/password-recovery-security]].
 
-`POST /user/alterar-senha` exige JWT e o `userId` deve ser exatamente o principal.
+`POST /user/alterar-senha` exige JWT e o `userId` deve ser exatamente o principal. A nova senha tem 8 a 72
+caracteres e precisa ser diferente da atual.
+
+`PUT /user/{id}`: gestor não altera e-mail de terceiros e GERENTE não altera ADMIN. O e-mail é o destino
+da recuperação de senha; permitir a troca por terceiros permitia tomar a conta (ver [[api]]).
 
 ## Validação de e-mail
 
-`POST /auth/send-code` gera código de seis dígitos, armazena-o em `email_validation_queue:{email}` por 15 minutos e coloca o DTO na lista `email_validation_queue`. O worker envia o e-mail. `POST /auth/validate-code` compara e remove o código e, quando existe usuário com o e-mail informado, marca `User.emailVerificado` na mesma operação transacional.
+`POST /auth/send-code` gera código de seis dígitos, armazena-o em `email_validation_queue:{email}` por 15 minutos e coloca o DTO na lista `email_validation_queue`. O worker envia o e-mail; `nome`, `email` e código entram no HTML com escape. Os dois endpoints validam o corpo
+(`ValidateEmailRequest.SendCode`/`VerifyCode`). `POST /auth/validate-code` compara e remove o código e, quando existe usuário com o e-mail informado, marca `User.emailVerificado` na mesma operação transacional.
 
 ## Cadastro e e-mail de boas-vindas
 

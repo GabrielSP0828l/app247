@@ -153,8 +153,10 @@ negócio incluem `INVALID_LOYALTY_MODE`, `INVALID_LOYALTY_CONFIG`, `INVALID_REWA
 - Controller/service: `AuthController.sendCode` → `UserService.sendCode`.
 - Finalidade: enviar código de validação de e-mail.
 - Segurança: pública.
-- Body `ValidateEmailRequest`: `email`, `nome`; `code` não precisa ser enviado.
+- Body `ValidateEmailRequest` (grupo `SendCode`): `email` obrigatório, formato de e-mail, até 180;
+  `nome` obrigatório, até 100; `code` é ignorado. Inválido → `400 VALIDATION_ERROR`.
 - Resposta: `200` vazio.
+- O `nome` entra no HTML do e-mail com escape (`EmailService.html`).
 - Efeitos: grava `email_validation_queue:{email}` com TTL de 15 minutos e enfileira na lista Redis homônima.
 - Observação: não marca `User.emailVerificado`.
 
@@ -163,9 +165,10 @@ negócio incluem `INVALID_LOYALTY_MODE`, `INVALID_LOYALTY_CONFIG`, `INVALID_REWA
 - Controller/service: `AuthController.validateCode` → `UserService.verificarCode(ValidateEmailRequest)`.
 - Finalidade: comparar código de e-mail.
 - Segurança: pública.
-- Body: `email`, `nome`, `code`.
+- Body (grupo `VerifyCode`): `email` obrigatório; `code` obrigatório com 6 dígitos; `nome` opcional.
+  Inválido → `400 VALIDATION_ERROR`.
 - Resposta: `200` vazio.
-- Erros pretendidos: código expirado/inválido; atualmente são encapsulados em `RuntimeException` e tendem a `500`.
+- Erros: código expirado/inválido (`ExpiredCodeException`/`InvalidCodeException`).
 - Efeito: remove a chave Redis quando válido.
 
 # Recuperação e usuários
@@ -203,7 +206,8 @@ negócio incluem `INVALID_LOYALTY_MODE`, `INVALID_LOYALTY_CONFIG`, `INVALID_REWA
 
 - Controller/service: `UserController.alterarSenha` → `UserService.alterarSenha`.
 - Segurança: JWT; `userId` deve ser o principal autenticado.
-- Body `ChangePasswordRequest`: `userId`, `oldPassword`, `newPassword`, sem validações declaradas.
+- Body `ChangePasswordRequest`: `userId` e `oldPassword` obrigatórios; `newPassword` obrigatório, 8 a 72
+  caracteres e diferente da atual (`400 PASSWORD_UNCHANGED`). Desde 18/10/2026.
 - Resposta: `200 { "message": "Senha alterada com sucesso" }`.
 - Efeitos: atualiza senha do ID informado se a senha antiga corresponder.
 - Tenant/ownership: estritamente self-service.
@@ -237,9 +241,17 @@ negócio incluem `INVALID_LOYALTY_MODE`, `INVALID_LOYALTY_CONFIG`, `INVALID_REWA
 
 - Controller/service: `UserController.update` → `UserService.atualizarUsuario`.
 - Segurança: JWT; self ou gestor da mesma Empresa.
-- Body `UserUpdate`: nome, sobrenome, email, telefone, ativo e condominioId, todos opcionais.
+- Body `UserUpdate`: nome, sobrenome, email, telefone, ativo e condominioId, todos opcionais; campo
+  presente é validado (nome não vazio, até 100; e-mail válido, até 180; telefone 10–20 caracteres
+  de dígitos/`()+-`). Inválido → `400 VALIDATION_ERROR`.
 - Resposta: `200` com mensagem.
-- Efeitos: self altera perfil; somente gestor pode alterar `ativo`/`condominioId`.
+- Regras (desde 18/10/2026, para impedir tomada de conta via recuperação de senha):
+  - e-mail só pode ser alterado pelo próprio usuário (`403 EMAIL_CHANGE_SELF_ONLY`); reenviar o mesmo
+    e-mail (ignorando maiúsculas) não conta como alteração. E-mail é normalizado (trim/minúsculas),
+    duplicado → `409 EMAIL_ALREADY_REGISTERED`, e a troca zera `emailVerificado`;
+  - GERENTE não altera ADMIN (`403 USER_MANAGEMENT_FORBIDDEN`);
+  - `ativo` só vale para terceiros e só por gestor; na própria conta é ignorado;
+  - `condominioId` somente por gestor.
 - Tenant: o condomínio e o usuário alvo devem pertencer à Empresa autenticada.
 
 # Onboarding, empresas e condomínios
@@ -301,7 +313,9 @@ negócio incluem `INVALID_LOYALTY_MODE`, `INVALID_LOYALTY_CONFIG`, `INVALID_REWA
 
 - Controller/service: `TerminalController.bySerial` → `TerminalService.getBySerial`.
 - Segurança: pública.
-- Resposta `TerminalActivationResponse`: IDs e nomes do terminal/condomínio, status e ativação.
+- Resposta `TerminalActivationResponse` (reduzida em 18/10/2026): somente `terminalId`, `serialNumber`,
+  `ativo` e `activated`. Nome, código, status, lifecycle e Condomínio deixaram de ser públicos;
+  o Terminal Python só lê `terminalId`, `activated` e `ativo`.
 - Erro: `404` se serial inexistente.
 - Tenant: não requer contexto; destina-se à ativação física.
 
@@ -862,11 +876,12 @@ Retorna as 100 ocorrências mais recentes, ativas e resolvidas, sem apagar o his
 
 - `POST /terminais/{id}/credential`: cria e retorna a credencial uma única vez;
 - `POST /terminais/{id}/credential/rotate`: invalida a anterior e retorna a nova;
-- `DELETE /terminais/{id}/credential`: revoga individualmente;
-- `POST /terminal/{id}/credential/migrate`: única rota do token global, disponível
-  somente com `TERMINAL_LEGACY_AUTH_ENABLED=true` e apenas antes da primeira credencial.
+- `DELETE /terminais/{id}/credential`: revoga individualmente.
 
-As três primeiras exigem JWT `ADMIN/GERENTE` e validam o tenant. A resposta bruta não
+A rota legada `POST /terminal/{id}/credential/migrate` e o token global
+`TERMINAL_INTERNAL_TOKEN` foram removidos em 18/10/2026; a rota cai no `denyAll` (401).
+
+As três rotas exigem JWT `ADMIN/GERENTE` e validam o tenant. A resposta bruta não
 existe em GET/listagens.
 
 ## POST /pagamento/terminal/order/{orderId}/cancelamento

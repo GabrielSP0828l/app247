@@ -68,7 +68,7 @@ public class UserController {
     @PostMapping("/alterar-senha")
     @Operation(summary = "Altera a própria senha", security = @SecurityRequirement(name = "bearerAuth"))
     public ResponseEntity<Map<String, String>> alterarSenha(
-            @RequestBody ChangePasswordRequest request
+            @RequestBody @Valid ChangePasswordRequest request
     ) {
         var actor = authorization.requireSelf(request.userId());
         service.alterarSenha(actor, request);
@@ -102,7 +102,7 @@ public class UserController {
     @PutMapping("/{id}")
     @Operation(summary = "Atualiza perfil com validação de ownership, papel e tenant",
             security = @SecurityRequirement(name = "bearerAuth"))
-    public ResponseEntity<?> update(@RequestBody UserUpdate update, @PathVariable String id) {
+    public ResponseEntity<?> update(@RequestBody @Valid UserUpdate update, @PathVariable String id) {
         var actor = authorization.currentUser();
         var target = authorization.requireSelfOrTenantManager(id);
         service.atualizarUsuario(actor, target, update);

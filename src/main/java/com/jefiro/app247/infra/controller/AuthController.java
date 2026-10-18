@@ -15,6 +15,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -59,13 +60,15 @@ public class AuthController {
     }
 
     @PostMapping("/send-code")
-    public ResponseEntity<?> sendCode(@RequestBody ValidateEmailRequest request) {
+    public ResponseEntity<?> sendCode(
+            @RequestBody @Validated(ValidateEmailRequest.SendCode.class) ValidateEmailRequest request) {
         users.sendCode(request);
         return ResponseEntity.ok().build();
     }
 
     @PostMapping("/validate-code")
-    public ResponseEntity<?> validateCode(@RequestBody ValidateEmailRequest request) {
+    public ResponseEntity<?> validateCode(
+            @RequestBody @Validated(ValidateEmailRequest.VerifyCode.class) ValidateEmailRequest request) {
         users.verificarCode(request);
         return ResponseEntity.ok().build();
     }

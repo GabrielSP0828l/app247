@@ -9,6 +9,7 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+import org.springframework.web.util.HtmlUtils;
 
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
@@ -193,7 +194,7 @@ public class EmailService {
                   </div>
                 </body>
                 </html>
-                """.replace("{{NOME}}", nome).replace("{{CODE}}", code).replace("{{EMAIL}}", email);
+                """.replace("{{NOME}}", html(nome)).replace("{{CODE}}", html(code)).replace("{{EMAIL}}", html(email));
     }
 
     public String gerarTemplateBoasVindas(User usuario) {
@@ -354,7 +355,7 @@ public class EmailService {
                   </div>
                 </body>
                 </html>
-                """.replace("{{NOME}}", nome).replace("{{EMAIL}}", email).replace("{{DATA_CADASTRO}}", dataCadastro);
+                """.replace("{{NOME}}", html(nome)).replace("{{EMAIL}}", html(email)).replace("{{DATA_CADASTRO}}", html(dataCadastro));
     }
 
     public String gerarTemplateValidarEmail(ValidateEmailRequest email) {
@@ -473,8 +474,13 @@ public class EmailService {
                 </body>
                 </html>
                 """
-                .replace("{{NOME}}", email.getNome())
-                .replace("{{CODE}}", email.getCode())
-                .replace("{{EMAIL}}", email.getEmail());
+                .replace("{{NOME}}", html(email.getNome()))
+                .replace("{{CODE}}", html(email.getCode()))
+                .replace("{{EMAIL}}", html(email.getEmail()));
+    }
+
+    /** Campos vêm de cadastro público: sem escape, o nome injetaria HTML/links no e-mail enviado pelo SMTP da empresa. */
+    static String html(String value) {
+        return value == null ? "" : HtmlUtils.htmlEscape(value);
     }
 }
